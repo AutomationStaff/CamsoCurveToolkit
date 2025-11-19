@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 0),
+	"version": (1, 0, 1),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -42,6 +42,7 @@ import bpy_extras
 from bpy_extras import view3d_utils
 import gpu
 from gpu_extras.batch import batch_for_shader
+import random
 from bpy.utils import register_class, unregister_class
 from bpy.types import Operator
 from enum import Enum
@@ -190,7 +191,7 @@ class BT_Draw(Operator, BT_Cursor):
 		self.keymap_strings = {	
 			'LMB': '[LMB]: Add a new point    ',
 			'LMB_CLICK_DRAG': '[LMB]+[CLICK_DRAG]: Move active point/handle    ',
-			'CTRL_LMB': '[CTRL]+[LMB]: Snap to curve control points and empties    ',
+			'CTRL_LMB': '[CTRL]+[LMB]: Snap to curves    ',
 			'CTRL_SHIFT_LMB': '[CTRL]+[SHIFT]+[LMB]: Snap to mesh vertices    ',
 			'SHIFT_LMB': '[SHIFT]+[LMB]: Snap to mesh surface    ',
 			'ENTER': '[ENTER]: Confirm and Exit'
@@ -312,7 +313,7 @@ class BT_DrawBezierLine(BT_Draw):
 
 			elif len(self.snap_points) > 0: # snap to curves and empties
 				screen_world_map = get_screen_world_map(self, context, self.snap_points)	
-				target = snap_get_target(self, context, event, screen_world_map)
+				target = snap_get_target(self, context, cursor, screen_world_map)								
 				if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target , self.RADIUS):
 					nearest_world = screen_world_map.get(target)
 					self.remove_target_handler()
@@ -357,8 +358,10 @@ class BT_DrawBezierLine(BT_Draw):
 		# add point
 		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
 			self.add_point(context, event)
+			obj = context.object
 			if len(self.points) == 2:
-				context.object.select_set(False)
+				if obj is not None and obj.select_get():
+					context.object.select_set(False)
 				self.build_curve(context)
 				self.remove_target_handler()
 				self.remove_line_2d_handler()
@@ -393,8 +396,8 @@ class BT_DrawBezierLine(BT_Draw):
 
 class BT_DrawBezierCurve(BT_Draw):
 	bl_idname = "curve.bt_draw_bezier_curve"
-	bl_label = "ADD BÉZIER CURVE"
-	bl_description = "Build a Bézier curve or polyline"
+	bl_label = 'ADD BÉZIER CURVE'
+	bl_description = "Build Polyline or Bézier Polyline"
 	bl_options = {'REGISTER', 'UNDO'}
 	spline_type: bpy.props.StringProperty(default='BEZIER', options={'SKIP_SAVE'})
 
@@ -441,6 +444,7 @@ class BT_DrawBezierCurve(BT_Draw):
 			return {"CANCELLED"}	
 
 		self.curve.color = context.scene.bt_color
+		context.window.cursor_modal_set('CROSS')
 			
 		return {"RUNNING_MODAL"}
 
@@ -469,7 +473,7 @@ class BT_DrawBezierCurve(BT_Draw):
 			elif len(self.snap_points) > 0: # snap to curves and empties
 				screen_world_map = get_screen_world_map(self, context, self.snap_points)
 				if len(screen_world_map) > 0:   
-					target = snap_get_target(self, context, event, screen_world_map).copy().freeze()
+					target = snap_get_target(self, context, cursor, screen_world_map).copy().freeze()
 					if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target , self.RADIUS):
 						nearest_world = screen_world_map.get(target)
 						if nearest_world is not None:
@@ -493,10 +497,11 @@ class BT_DrawBezierCurve(BT_Draw):
 						points[0].handle_left = point
 						points[0].handle_right = point
 						points[0].hide = False
-						self.new_spline = False
-						update_viewport(self, context)
+						self.new_spline = False						
 						points[0].handle_right_type='AUTO'
 						points[0].handle_left_type='AUTO'
+						points[-1].handle_right_type='FREE'
+						points[-1].handle_left_type='FREE'					
 
 					else:
 						# now we can add a new point
@@ -509,14 +514,12 @@ class BT_DrawBezierCurve(BT_Draw):
 						points[-1].handle_right_type='FREE'
 						points[-1].handle_left_type='FREE'
 						points[-1].handle_right = point
-						points[-1].select_left_handle = True
 				
 				elif self.spline_type == 'POLY':
 					if self.new_spline:                     
 						points[0].co = point.to_4d()            
 						points[0].hide = False
-						self.new_spline = False         
-						update_viewport(self, context)
+						self.new_spline = False						
 					else:
 						points.add(1)
 						points[-1].co = point.to_4d()
@@ -541,25 +544,25 @@ class BT_DrawBezierCurve(BT_Draw):
 				points[-1].handle_right_type='ALIGNED'
 				points[-1].handle_left_type='ALIGNED'
 
-			context.workspace.status_text_set(self.keymap_strings['LMB'] + self.keymap_strings['LMB_CLICK_DRAG'] + self.keymap_strings['CTRL_LMB'] + self.keymap_strings['CTRL_SHIFT_LMB'] + self.keymap_strings['SHIFT_LMB'] + self.keymap_strings['ENTER'])
+			context.workspace.status_text_set(self.keymap_strings['LMB'] + self.keymap_strings['CTRL_LMB'] + self.keymap_strings['CTRL_SHIFT_LMB'] + self.keymap_strings['SHIFT_LMB'] + self.keymap_strings['ENTER'])
 
-		elif event.type == 'MOUSEMOVE':
+		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':			
+			self.add_point(context, event)
 			return {'PASS_THROUGH'}
-
-		elif event.type == 'LEFTMOUSE' or event.is_tablet:
-			if event.value == 'PRESS':
-				self.add_point(context, event)
-			return {'PASS_THROUGH'}
-
-		elif event.type == 'LEFTMOUSE' or event.is_tablet:                  
-			return {'PASS_THROUGH'}   
 
 		elif event.type in {'RET', 'ESC'} and event.value == 'PRESS':         
 			if not len(self.get_points(self.curve)) > 1:
-				bpy.data.curves.remove(self.curve.data)	
+				bpy.data.curves.remove(self.curve.data)
+
 			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'
 			update_object_edit(context)
+			if self.spline_type == 'BEZIER':
+				set_handle_type(self, self.curve, 'VECTOR')
+				set_handle_type(self, self.curve, 'FREE')
+
+			context.window.cursor_modal_set('DEFAULT')		
+
 			return {'FINISHED'}
 
 		return {'RUNNING_MODAL'}
@@ -637,7 +640,7 @@ class BT_DrawPolyBezier(BT_Draw):
 			elif len(self.snap_points) > 0: # snap to curves and empties    
 				screen_world_map = get_screen_world_map(self, context, self.snap_points)                
 				if len(screen_world_map) > 0:  
-					target = snap_get_target(self, context, event, screen_world_map).copy().freeze()
+					target = snap_get_target(self, context, cursor, screen_world_map).copy().freeze()
 					if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target , self.RADIUS):
 						nearest_world = screen_world_map.get(target)
 						self.points.append((target, nearest_world))
@@ -679,7 +682,7 @@ class BT_DrawPolyBezier(BT_Draw):
 				self.points.clear()
 				context.workspace.status_text_set(None)
 				context.window_manager.bt_modal_on = 'NONE'
-				return {'FINISHED'}
+				# return {'FINISHED'}
 
 			return {'RUNNING_MODAL'}
 
@@ -791,7 +794,7 @@ class BT_DrawPolylineCircle(BT_Draw):
 		
 			elif len(self.snap_points) > 0: # snap to curves and empties
 				screen_world_map = get_screen_world_map(self, context, self.snap_points)				
-				target = snap_get_target(self, context, event, screen_world_map).freeze()
+				target = snap_get_target(self, context, cursor, screen_world_map).freeze()
 				if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target , self.RADIUS):
 					nearest_world = screen_world_map.get(target)
 					self.radius.append((target, nearest_world))
@@ -843,7 +846,7 @@ class BT_DrawPolylineCircle(BT_Draw):
 			update_viewport(self, context)
 			return {'RUNNING_MODAL'}
 
-		elif event.type in {'RET', 'ESC'} and event.value == 'PRESS':         
+		elif event.type in {'RET'} and event.value == 'PRESS':         
 			self.add_point(context, event)
 			if len(self.radius) == 2:
 				self.build_polyline_circle(context)
@@ -853,6 +856,14 @@ class BT_DrawPolylineCircle(BT_Draw):
 			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'
 			return {'FINISHED'}
+
+		elif event.type in {'ESC'} and event.value == 'PRESS':
+			self.remove_target_handler()
+			self.remove_curve_2d_handler()
+			update_viewport(self, context)
+			context.workspace.status_text_set(None)
+			context.window_manager.bt_modal_on = 'NONE'
+			return {'FINISHED'}		
 
 		return {'RUNNING_MODAL'}
 
@@ -934,8 +945,8 @@ class BT_DrawPolylineRectangle(BT_Draw):
 						update_viewport(self, context)				
 
 			elif len(self.snap_points) > 0: # snap to curves and empties
-				screen_world_map = get_screen_world_map(self, context, self.snap_points)			
-				target = snap_get_target(self, context, event, screen_world_map).freeze()
+				screen_world_map = get_screen_world_map(self, context, self.snap_points)	
+				target = snap_get_target(self, context, cursor, screen_world_map).freeze()
 
 				if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target , self.RADIUS):
 					nearest_world = screen_world_map.get(target)
@@ -986,7 +997,7 @@ class BT_DrawPolylineRectangle(BT_Draw):
 			update_viewport(self, context)
 			return {'RUNNING_MODAL'}
 
-		elif event.type in {'RET', 'ESC'} and event.value == 'PRESS':
+		elif event.type in {'RET'} and event.value == 'PRESS':
 			self.add_point(context, event)      
 			if len(self.diagonal) == 2:         
 				self.build_polyline_rectangle(context)
@@ -999,62 +1010,166 @@ class BT_DrawPolylineRectangle(BT_Draw):
 			context.window_manager.bt_modal_on = 'NONE'
 			return {'FINISHED'}       
 
-		# elif event.type == 'ESC' and event.value == 'PRESS':
-		# 	self.remove_target_handler()
-		# 	self.remove_curve_2d_handler()
-		# 	update_viewport(self, context)
-		# 	self.points.clear()
-		# 	self.diagonal.clear()
-		# 	context.area.status_text_set(None)       
-		# 	return {'CANCELLED'}    
+		elif event.type == 'ESC' and event.value == 'PRESS':
+			self.remove_target_handler()
+			self.remove_curve_2d_handler()
+			update_viewport(self, context)
+			self.points.clear()
+			self.diagonal.clear()
+			context.workspace.status_text_set(None) 
+			context.window_manager.bt_modal_on = 'NONE'  
+			return {'CANCELLED'}
 
 		return {'RUNNING_MODAL'}
 
-class BT_SnapBezierToBezier(Operator):
-	bl_idname = "curve.bt_snap_bezier_to_bezier"
-	bl_label = "Snap Bézier Control Points To Other Bézier"
-	bl_description = "Snap selected control points of the context Bézier curve to nearest control/interpolated points on other Bézier curves"
+class BT_Snap(Operator):
+	bl_idname = "curve.bt_snap"
+	bl_label = "Snap curve control points"
+	bl_description = "Snap selected control points to other Bézier curve or Polyline"
 	bl_options = {'REGISTER', 'UNDO'}
-	
+
+	snap_map = {}
+	RADIUS = 25
+	snap_targets_handler = None
+	needs_update = False
+
 	@classmethod
 	def poll(cls, context):
-		return context.object and context.object.type == 'CURVE' and len(bpy.data.curves) > 1
+		wm = context.window_manager
+		return wm.bt_modal_on != 'BT_SNAP' and context.object is not None and context.mode == 'EDIT_CURVE'
 
-	def buld_target_points_buffer(self, curves):
-		points = []		
-		for curve in curves:			
-			interpolated_points = mathutils_interpolate_n_bezier_points(curve, (curve.data.splines[0].resolution_u+1)*(len(curve.data.splines[0].bezier_points)-1))
-			for point in interpolated_points:
-				points.append(point)
-			
-		kd_tree = build_kd_tree(points)		
-		return kd_tree
+	def get_points(self, curve):		
+		return [point for point in curve.data.splines[0].bezier_points if point.select_control_point] if is_bezier(curve) else [point for point in curve.data.splines[0].points if point.select]	
 
-	def execute(self, context):		
+	def build_snap_map(self, context):
+		viewport = get_view_3d(self, context)
+		width=viewport.width
+		height=viewport.height	
+		
+		curves = self.get_visible_curves(context)
 		curve = context.object
-		matrix = curve.matrix_world
-		points = [point for point in curve.data.splines[0].bezier_points if point.select_control_point]
-		target_curves = [obj for obj in context.view_layer.objects if ((is_bezier(obj) and obj.visible_get()) and (obj is not curve))]
 		
-		if not len(target_curves) > 0:
-			return {'CANCELLED'}
+		for curve in curves:
+			if curve is context.object:
+				continue
+			
+			interpolated_points = mathutils_interpolate_n_bezier_points(curve, curve.data.splines[0].resolution_u+1) if is_bezier(curve) else [curve.matrix_world@Vector(point.co[0:3]) for point in curve.data.splines[0].points]
 
-		points_buffer = self.buld_target_points_buffer(target_curves)
+			for point in interpolated_points:
+				screen_point = vector_3d_to_screen(self, context, point)
+				if screen_point is None or (screen_point.x > width or screen_point.x < 0) or (screen_point.y > height or  screen_point.y < 0):
+					continue			
+				self.snap_map[screen_point.freeze()] = point		
 		
-		if points_buffer is None:
-			return {'CANCELLED'}
-		
-		for point in points:
-			point_world = matrix@point.co
-			point_handle_left_world = matrix@point.handle_left
-			point_handle_right_world = matrix@point.handle_right
-					
-			translation = points_buffer.find(point_world)[0] - point_world
-			point.co = matrix.inverted()@(Matrix.Translation(translation)@point_world)
-			point.handle_left = matrix.inverted()@(Matrix.Translation(translation)@point_handle_left_world)
-			point.handle_right = matrix.inverted()@(Matrix.Translation(translation)@point_handle_right_world)
+		self.snap_targets_handler = draw_snap_targets(self, context, [tuple(point) for point in self.snap_map.keys()])
 
-		return {'FINISHED'}
+	def calculate_gizmo_center(self, matrix, points):
+		return matrix@(sum((point.co.xyz for point in points), Vector()) / len(points))
+
+	def remove_snap_targets_handler(self):
+		remove_gpu_draw_handler(self, self.snap_targets_handler)
+		self.snap_targets_handler = None
+	
+	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}		
+		
+		self.build_snap_map(context)
+		
+		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
+		context.window_manager.bt_modal_on = 'BT_SNAP'
+		context.window_manager.modal_handler_add(self)
+
+		return {'RUNNING_MODAL'}
+
+	def get_visible_curves(self, context):
+		curves = []
+		for obj in context.view_layer.objects:
+			if obj.visible_get() and obj.type=='CURVE' and not obj.data.splines[0].type == 'NURBS':
+				curves.append(obj)
+
+		return curves
+
+	def snap(self, context, event, points):		
+		cursor = get_cursor(self, event)
+		matrix = context.object.matrix_world
+		curve = context.object	
+		
+		if self.needs_update:
+			self.snap_map.clear()
+			self.build_snap_map(context)
+			self.needs_update = False		
+
+		if len(self.snap_map) > 0:
+			target = snap_get_target(self, context, cursor, self.snap_map).copy().freeze()
+			if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target, self.RADIUS):
+				nearest_world = self.snap_map.get(target)
+				if nearest_world is not None:
+					for point in points:
+						distance = nearest_world - (self.calculate_gizmo_center(matrix, points))
+						translation = Matrix.Translation(distance.xyz)
+						point.co.xyz = translation@point.co.xyz
+						if len(point.co) == 3:	# is bezier point
+							point.handle_right = translation@point.handle_right
+							point.handle_left = translation@point.handle_left	
+
+		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
+	
+	def select_next_point(self, context, direction):
+		point = None
+		curve = context.object
+		points = [point for point in curve.data.splines[0].bezier_points] if is_bezier(curve) else [point for point in curve.data.splines[0].points]	
+		if not len(self.get_points(context.object)):
+			point = points[0]
+		else:
+			index = get_bezier_point_index(points, self.get_points(context.object)[0])
+			
+			if direction == 'left':
+				if index-1 >= 0:					
+					point = curve.data.splines[0].bezier_points[index-1] if is_bezier(curve) else curve.data.splines[0].points[index-1]
+			
+			elif direction == 'right':
+				if index+1 < len(points):					
+					point = curve.data.splines[0].bezier_points[index+1] if is_bezier(curve) else curve.data.splines[0].points[index+1]			
+		
+		if point is not None:
+			bpy.ops.curve.select_all(action='DESELECT')
+			if is_bezier(curve):
+				point.select_control_point = True
+			else:
+				point.select = True
+
+	def modal(self, context, event):
+		if (event.alt and event.type in ('LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE', 'MOUSEMOVE')):
+			self.remove_snap_targets_handler()
+			self.needs_update = True
+			return {'PASS_THROUGH'}
+
+		elif event.type in ('MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE'):
+			self.remove_snap_targets_handler()			
+			self.needs_update = True
+			return {'PASS_THROUGH'}
+	
+		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+			self.snap(context, event, self.get_points(context.object))
+			return {'RUNNING_MODAL'}
+
+		elif event.type == 'LEFT_ARROW' and event.value == 'PRESS':
+			self.select_next_point(context, 'left')
+
+		elif event.type == 'RIGHT_ARROW' and event.value == 'PRESS':
+			self.select_next_point(context, 'right')	
+
+		elif event.type in {'ESC', 'RET'}:			
+			self.snap_map.clear()
+			context.window_manager.bt_modal_on = 'NONE'
+			context.workspace.status_text_set(None)
+			self.remove_snap_targets_handler()
+			update_object_edit(context)
+			return {'FINISHED'}
+
+		return{'RUNNING_MODAL'}
 
 def calculate_new_bezier_point_at_t(self, points, t):
 # We'll use De Casteljau's algorithm here
@@ -1346,11 +1461,11 @@ class BT_Split(Operator, BT_Cursor):
 				if bezier_split_point[0] == 0 or bezier_split_point[0] == len(self.points)-1:					
 					return{'RUNNING_MODAL'}
 
-				successs = self.split(context, bezier_split_point)
+				success = self.split(context, bezier_split_point)
 				self.remove_target_handler()
 				update_viewport(self, context)
 
-				if successs:
+				if success:
 					context.window.cursor_set('DEFAULT')
 					context.workspace.status_text_set(None)
 					context.window_manager.bt_modal_on = 'NONE'
@@ -1624,7 +1739,6 @@ class BT_SetBezierHandleType(Operator):
 			return {'CANCELLED'}
 
 		curve = context.object
-
 		if not is_bezier(curve):
 			self.report({'ERROR'}, self.bl_label + ': Selected object should be a Bézier curve')
 			return {'CANCELLED'}
@@ -1632,16 +1746,17 @@ class BT_SetBezierHandleType(Operator):
 		return self.execute(context)
 		
 	def execute(self, context):
-		curve = context.object
 		if context.mode == 'EDIT_CURVE':
-			bezier_points = curve.data.splines[0].bezier_points
-			points = [point for point in bezier_points if point.select_control_point]
+			for curve in context.selected_objects:			
+				bezier_points = curve.data.splines[0].bezier_points
+				points = [point for point in bezier_points if point.select_control_point]
 
-			for point in points:
-				point.handle_left_type = self.handle_type
-				point.handle_right_type = self.handle_type	
+				for point in points:
+					point.handle_left_type = self.handle_type
+					point.handle_right_type = self.handle_type	
 		else:
-			set_handle_type(self, curve, self.handle_type)
+			for curve in context.selected_objects:	
+				set_handle_type(self, curve, self.handle_type)
 
 		return {'FINISHED'}
 
@@ -1675,13 +1790,13 @@ class BT_Add(Operator, BT_Cursor):
 	bl_description = 'Add a new control point inside the curve'
 	bl_options = {'REGISTER', 'UNDO'}
 
-	@classmethod
-	def poll(cls, context):
-		return context.object is not None and context.mode == 'EDIT_CURVE' and context.window_manager.bt_modal_on != 'BT_ADD_POINT'
-
 	RADIUS = 25
 	screen_world_map = dict()
 	points = None
+
+	@classmethod
+	def poll(cls, context):
+		return context.object is not None and context.mode == 'EDIT_CURVE' and context.window_manager.bt_modal_on != 'BT_ADD_POINT'	
 
 	screen_world_map_needs_update = False
 	target_handler = None
@@ -1733,7 +1848,7 @@ class BT_Add(Operator, BT_Cursor):
 			self.report({'ERROR'}, "Context Object type is not Curve")
 			return {'CANCELLED'}
 
-		self.points = mathutils_interpolate_n_bezier_points(curve, resolution + 1)
+		self.points = mathutils_interpolate_n_bezier_points(curve, resolution+1)
 
 		if not resolution > 1:
 			self.report({'ERROR'}, "Resolution must be higher than 1")
@@ -1745,10 +1860,10 @@ class BT_Add(Operator, BT_Cursor):
 			self.screen_world_map = get_screen_world_map(self, context, self.points)
 
 		context.window_manager.modal_handler_add(self)
-		context.workspace.status_text_set('[LMB]: Add a new point and finish  [ESC]: Quit')
+		context.workspace.status_text_set('[LMB]: Add a new point  [ESC]: Quit')
 		context.window_manager.bt_modal_on = 'BT_ADD_POINT'
 
-		return {'RUNNING_MODAL'}  
+		return {'RUNNING_MODAL'}
 	
 	def add_point(self, context, bezier_split_point):
 		source = context.object
@@ -1895,10 +2010,11 @@ class BT_Add(Operator, BT_Cursor):
 			
 			self.remove_target_handler()			
 			update_viewport(self, context)
-			context.window.cursor_modal_set('DEFAULT')
-			context.window_manager.bt_modal_on = 'NONE'
+			# context.window.cursor_modal_set('DEFAULT')
+			# context.workspace.status_text_set(None)
+			# context.window_manager.bt_modal_on = 'NONE'			
 			update_object_edit(context)
-			return {'FINISHED'}
+			return {'RUNNING_MODAL'}
 
 		elif event.type == 'MOUSEMOVE':
 			self.remove_target_handler()		
@@ -1914,10 +2030,11 @@ class BT_Add(Operator, BT_Cursor):
 				self.target_handler = draw_target(self, context, nearest_screen_point)
 			update_viewport(self, context)
 
-		elif event.type == 'ESC':
+		elif event.type in {'ESC', 'RET'}:
 			self.remove_target_handler()
 			update_viewport(self, context)			
 			context.window.cursor_modal_set('DEFAULT')
+			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'
 			update_object_edit(context)
 			return {'CANCELLED'}
@@ -1929,7 +2046,7 @@ class BT_Slide(Operator):
 	bl_label = 'Slide Bézier Point'
 	bl_description = 'Slide Bézier control point'
 	bl_options = {'REGISTER', 'UNDO'}
-	t: bpy.props.FloatProperty(min=0.001, soft_min=0.001, soft_max=0.999, max=0.999, name='Value', default=0.5, options={'SKIP_SAVE'})
+	t: bpy.props.FloatProperty(min=0.001, soft_min=0.001, soft_max=0.999, max=0.999, name='Value', default=0.01)#, options={'SKIP_SAVE'}
 
 	@classmethod
 	def poll(cls, context):
@@ -2946,6 +3063,10 @@ def add_bezier_spline(self, context, curve, data, resolution):
 		points[1].handle_left = data.p1_handle_left
 		points[1].handle_right = data.p1_handle_right
 
+	# fix idle handles
+	points[0].handle_left = Matrix.Translation(points[0].co) @ points[0].co - points[0].handle_right
+	points[-1].handle_right = Matrix.Translation(points[-1].co) @ points[-1].co - points[-1].handle_left
+
 	spline.resolution_u = resolution
 	return spline
 
@@ -3053,14 +3174,15 @@ def interpolate_bezier_classic_formula(curve, t):
 	p0=points[0], handle_right=points[0].handle_right, handle_left=points[1].handle_left, p3=points[1]
 	return pow((1 - t), 3)*p0.co + 3*(pow((1 - t), 2))*t*handle_right + 3*(1 - t)*pow(t, 2)*handle_left + pow(t, 3)*p3.co
 
-class BT_BezierSpaceInterpolate(Operator):
-	bl_idname = 'curve.bt_equal_point_distribution'
-	bl_label = 'Equal Point Distribution'
-	bl_description = 'Spawn evenly distributed empties along the curve'
+class BT_BezierInterpolate(Operator):
+	bl_idname = 'curve.bt_bezier_interpolate'
+	bl_label = 'Bezier Interpolate'
+	bl_description = 'Spawn empties at interpolated points'
 	bl_options = {'REGISTER', 'UNDO'}
 	segments_count: bpy.props.IntProperty(name='Segments Count', min=2, max=64, default=10, description='Number of interpolated segments')
 	precision: bpy.props.IntProperty(name='Precision', min=1, max=100, default=10, description='Resolution of constraint curve. Low - may lead to missing points, high - to slow calculation')
 	empty_radius:bpy.props.FloatProperty(name='Radius', min=0.0, default=0.01, description='Radius of empties')
+	standard_interpolation: bpy.props.BoolProperty(name='Standard Interpolation', description='Spawn empties at real interpolated points based on spline resolution')
 
 	@classmethod
 	def poll(cls, context):
@@ -3069,9 +3191,11 @@ class BT_BezierSpaceInterpolate(Operator):
 	def draw(self, context):
 		layout = self.layout
 		column = layout.column()
-		column.prop(self, 'segments_count')
-		column.prop(self, 'precision')		
-		column.prop(self, 'empty_radius')
+		if not self.standard_interpolation:
+			column.prop(self, 'segments_count')
+			column.prop(self, 'precision')		
+			column.prop(self, 'empty_radius')
+		column.prop(self, 'standard_interpolation')	
 
 	def execute(self, context):
 		curve = context.object
@@ -3082,9 +3206,9 @@ class BT_BezierSpaceInterpolate(Operator):
 		pivot = curve.location.copy()
 		bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)	
 
-		space_points = space_interpolate_bezier(curve, self.precision, self.segments_count, debug=False)
+		interpolated_points = mathutils_interpolate_n_bezier_points(curve, curve.data.splines[0].resolution_u+1) if self.standard_interpolation else space_interpolate_bezier(curve, self.precision, self.segments_count, debug=False)
 
-		for point in space_points:
+		for point in interpolated_points:
 			spawn_empty('Point', point, size=self.empty_radius)
 
 		set_pivot(self, curve, pivot)		
@@ -3200,10 +3324,11 @@ class BT_ConvertCurve(Operator):
 					# points[-1].handle_right_type = 'AUTO'             
 					points.add(1)
 					points[-1].co = point
-					points[-1].handle_left = point
-					points[-1].handle_right = point 
-					# points[-1].handle_left_type = 'ALIGNED'
-					# points[-1].handle_right_type = 'ALIGNED'                              
+					points[-1].handle_left_type = 'AUTO'
+					points[-1].handle_right_type = 'AUTO'
+					points[-1].handle_left_type = 'ALIGNED'
+					points[-1].handle_right_type = 'ALIGNED'			
+					points[-2].handle_right = Matrix.Translation(points[-2].co) @ points[-2].co - points[-2].handle_left                              
 
 				elif len(leftover) == 2:
 					# we will calculate a quadratic bezier from 3 leftover points, then
@@ -3226,9 +3351,9 @@ class BT_ConvertCurve(Operator):
 					points[-1].co = p2
 					points[-1].handle_left = ((handle - p2)*2/3)+p2			
 
-			# cleanup idle handles
-			points[0].handle_left = Matrix.Translation(points[0].co) @  points[0].co - points[0].handle_right
-			points[-1].handle_right = Matrix.Translation(points[-1].co) @  points[-1].co - points[-1].handle_left					 
+			# fix idle handles
+			points[0].handle_left = Matrix.Translation(points[0].co) @ points[0].co - points[0].handle_right
+			points[-1].handle_right = Matrix.Translation(points[-1].co) @ points[-1].co - points[-1].handle_left			 
 
 			# # convert all handles to ALIGNED type
 			# if len(spline.bezier_points) > 2:     
@@ -3242,7 +3367,7 @@ class BT_ConvertCurve(Operator):
 	def bezier_to_poly(self, context, curve, matrix, spline):
 		bezier_points = spline.bezier_points
 		interpolated_points = []		
-		poly_points = [point.to_4d() for point in space_interpolate_bezier(curve, 10, self.resolution)]	
+		poly_points = [point.to_4d() for point in space_interpolate_bezier(curve, 100, self.resolution)]
 
 		spline = add_polyline_spline(self, context, curve, poly_points)
 		return spline
@@ -3569,8 +3694,8 @@ class BT_Loft(Operator):
 
 			sort_by_distance(self, context.object, curves)
 
-			bpy.ops.object.mode_set(mode='OBJECT')	
-			bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)			
+			bpy.ops.object.mode_set(mode='OBJECT')
+			bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)		
 
 			loft_polyline(self, context, curves, self.flip_normals)
 		
@@ -3983,9 +4108,7 @@ def mathutils_interpolate_n_bezier_points(curve, count, *, world_space=True, pro
 				points[index+1].handle_left,
 				points[index+1].co,
 				(disribution[index] if len(disribution) else count))[1:]:
-				interpolated_points.append(matrix@ip)
-
-	# print(len(interpolated_points))
+				interpolated_points.append(matrix@ip)	
 
 	if debug:
 		for ip in interpolated_points:
@@ -4050,32 +4173,30 @@ def get_bezier_point_t_map(self, curve):
 	return point_t_map
 
 def snap_get_points(self, context):
-		# get all scene curve points available for snapping
-		coords = set()
-		curves = [obj.evaluated_get(context.evaluated_depsgraph_get()) for obj in bpy.data.objects if ((obj.type == 'CURVE') and (obj.name in context.view_layer.objects) and (obj.visible_get() == True ))]
-		empties = [obj for obj in bpy.data.objects if ((obj.type == 'EMPTY') and (obj.name in context.view_layer.objects) and (obj.visible_get() == True ))]
-		
-		for curve in curves:			
-			for spline in curve.data.splines:
-				if spline.type == 'BEZIER':
-					pts = [point.co for point in spline.bezier_points]
-					for p in pts:						
-						coords.add(to_world(self, curve.matrix_world, p).freeze())
-				else:
-					pts = [Vector((point.co[:3])) for point in spline.points]
-					for p in pts:						
-						coords.add(to_world(self, curve.matrix_world, p).freeze())
-		
-		for empty in empties:
-			coords.add(empty.location.copy().freeze())
+	viewport = get_view_3d(self, context)
+	width=viewport.width
+	height=viewport.height
 
-		return coords
+	coords = set()
+	curves = [obj.evaluated_get(context.evaluated_depsgraph_get()) for obj in bpy.data.objects if ((obj.type == 'CURVE') and (obj.name in context.view_layer.objects) and (obj.visible_get() == True ))]
+	empties = [obj for obj in bpy.data.objects if ((obj.type == 'EMPTY') and (obj.name in context.view_layer.objects) and (obj.visible_get() == True ))]
+	
+	for curve in curves:		
+		interpolated_points = mathutils_interpolate_n_bezier_points(curve, curve.data.splines[0].resolution_u+1) if is_bezier(curve) else [curve.matrix_world@Vector(point.co[0:3]) for point in curve.data.splines[0].points]
+	
+		for point in interpolated_points:
+			screen_point = vector_3d_to_screen(self, context, point)
+			if screen_point is None or (screen_point.x > width or screen_point.x < 0) or (screen_point.y > height or  screen_point.y < 0):
+				continue		
+			coords.add(point.freeze())
+	
+	for empty in empties:
+		coords.add(empty.location.copy().freeze())
 
-def snap_get_target(self, context, event, screen_world_map):
-	dist = dict()
-	cursor = Vector((event.mouse_region_x, event.mouse_region_y))
-	nearest_screen = self.get_nearest_target_point_world(cursor, screen_world_map)
-	return nearest_screen
+	return coords
+
+def snap_get_target(self, context, cursor, screen_world_map):	
+	return BT_Cursor.get_nearest_target_point_world(self, cursor, screen_world_map)
 
 def reverse_curve(self, curve): 
 	def get_bezier_props(point):
@@ -4240,8 +4361,8 @@ def viewport_to_screen_coordinates_list(self, context, points):
 
 	return screen_coords
 
-def get_cursor(self, event):
-	return Vector((event.mouse_region_x, event.mouse_region_y))
+def get_cursor(self, event, *, as_tuple=False):
+	return (event.mouse_region_x, event.mouse_region_y) if as_tuple else Vector((event.mouse_region_x, event.mouse_region_y))
 
 def get_region_view_3d(self, context):
 	view3d = bpy.context.space_data
@@ -4418,11 +4539,7 @@ def invert_basis_vector(vector):
 def vector_3d_to_screen(self, context, vector):
 	region = context.region
 	rv3d = context.region_data
-	view_3d = get_view_3d(self, context)    
-	
-	if view_3d is None:
-		return vector
-
+	view_3d = get_view_3d(self, context)
 	return bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, vector)
 
 def set_pivot(self, obj, pivot):
@@ -4467,9 +4584,23 @@ def draw_target(self, context, pos):
 
 	return handler
 
+def draw_snap_targets(self, context, points):
+	def draw():
+		shader.uniform_float("color", (0.0, 0.5, 0.5, 1.0))
+		batch.draw(shader)
+
+	shader = gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
+	batch = batch_for_shader(shader, 'POINTS', {"pos": points})
+	gpu.state.point_size_set(10)
+
+	handler = bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_PIXEL')
+	update_viewport(self, context)
+
+	return handler
+
 def draw_2d_polyline(self, context, points, index_buffer):
 	def draw():
-		shader.uniform_float("color", context.scene.bt_color)#(0.0, 1.0, 0.5, 1.0)
+		shader.uniform_float("color", (0.0, 1.0, 0.5, 1.0))
 		batch.draw(shader)
 
 	shader = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -4518,11 +4649,12 @@ class BT_BuildCurvePanel(Panel):
 		wm = context.window_manager		
 		column = layout.column(align=True)
 		column.operator(BT_DrawBezierLine.bl_idname, text="Bézier Line", depress=(True if wm.bt_modal_on=='BT_LINE' else False))
-		column.operator(BT_DrawBezierCurve.bl_idname, text="Bézier Curve", depress=(True if wm.bt_modal_on=='BT_CURVE' else False)).spline_type='BEZIER'							 		    
+		column.operator(BT_DrawBezierCurve.bl_idname, text="Bézier Polyline", depress=(True if wm.bt_modal_on=='BT_CURVE' else False)).spline_type='BEZIER'										 		    
 		column.operator(BT_DrawPolyBezier.bl_idname, text="PolyBézier Curve Min", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False)).to_bezier=1							 		    
 		column.operator(BT_DrawPolyBezier.bl_idname, text="PolyBézier Curve Max", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False)).to_bezier=2
 
 		column.separator(factor=1.0)
+
 		column.operator(BT_DrawBezierCurve.bl_idname, text="Polyline", depress=(True if wm.bt_modal_on=='BT_POLYLINE' else False)).spline_type='POLY'
 		column.operator(BT_DrawPolylineCircle.bl_idname, text = "Polyline Circle", depress=(True if wm.bt_modal_on=='BT_POLYCIRCLE' else False))
 		column.operator(BT_DrawPolylineRectangle.bl_idname, text = "Polyline Rectangle", depress=(True if wm.bt_modal_on=='BT_POLYRECTANGLE' else False))
@@ -4566,13 +4698,13 @@ class BT_EditBezierPanel(Panel):
 		column.operator(BT_Split.bl_idname, text = "Split", depress=(True if wm.bt_modal_on=='BT_SPLIT' else False))
 		column.operator(BT_Join.bl_idname, text = "Join")
 		column.operator(BT_Offset.bl_idname, text = "Offset")
-		column.operator(BT_SnapBezierToBezier.bl_idname, text = "Snap")
+		column.operator(BT_Snap.bl_idname, text = "Snap", depress=(True if wm.bt_modal_on=='BT_SNAP' else False))
 		column.separator()
-		column.operator(BT_SetBezierHandleType.bl_idname, text = "Set Handle Type")		
+		column.operator(BT_SetBezierHandleType.bl_idname, text = "Set Handle Type")	
 		column.operator(BT_Reverse.bl_idname, text = "Reverse")
 		column.operator(BT_ConvertCurve.bl_idname, text = "Convert")
 		column.operator(BT_TransferCurveData.bl_idname, text = "Transfer Data")
-		column.operator(BT_BezierSpaceInterpolate.bl_idname, text = "Interpolate")		
+		column.operator(BT_BezierInterpolate.bl_idname, text = "Interpolate")		
 
 class BT_BlendPanel(Panel):
 	bl_label = "Blend Bézier"
@@ -4634,11 +4766,11 @@ classes = (
 	BT_ConvertCurve,
 	BT_Patch,
 	BT_Loft,
-	BT_SnapBezierToBezier,
+	BT_Snap,
 	BT_Smooth,
 	BT_Merge,
 	BT_SetBezierHandleType,
-	BT_BezierSpaceInterpolate
+	BT_BezierInterpolate
 )
 
 bt_addon_keymaps = []
@@ -4663,6 +4795,7 @@ def register():
 		('BT_POLYRECTANGLE','',''),
 		('BT_SPLIT','',''),
 		('BT_ADD_POINT','',''),
+		('BT_SNAP','',''),		
 		])
 
 def unregister():
