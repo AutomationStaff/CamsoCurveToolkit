@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 1),
+	"version": (1, 0, 2),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -244,22 +244,21 @@ class BT_Draw(Operator, BT_Cursor):
 		remove_gpu_draw_handler(self, self.curve_2d_handler)
 		self.curve_2d_handler = None
 
-	def invoke(self, context, event):
+	def init_draw(self, context):
 		wm = context.window_manager
 		if wm.bt_modal_on != 'NONE':
-			return {'CANCELLED'}
+			return False
 
-		if is_single_view3d(context):
-			context.window.cursor_set('NONE')
-			self.snap_points = snap_get_points(self, context)
-			self.resolution = context.scene.bt_resolution
-			km=self.keymap_strings
-			context.workspace.status_text_set(km['LMB'] + km['CTRL_LMB'] + km['CTRL_SHIFT_LMB'] + km['SHIFT_LMB'] + km['ENTER'])
-			context.window_manager.modal_handler_add(self)
-			return {"RUNNING_MODAL"}
-		else:
-			self.report({'ERROR'}, "Can only work inside a single VIEW_3D space. Split VIEW_3D areas or Quad View are not supported!")
-			return {'CANCELLED'}
+		if not is_single_view3d(self, context):
+			return False
+
+		context.window.cursor_set('NONE')
+		self.snap_points = snap_get_points(self, context)
+		self.resolution = context.scene.bt_resolution
+		km=self.keymap_strings
+		context.workspace.status_text_set(km['LMB'] + km['CTRL_LMB'] + km['CTRL_SHIFT_LMB'] + km['SHIFT_LMB'] + km['ENTER'])
+
+		return True
 
 class BT_DrawBezierLine(BT_Draw):
 	bl_idname = "curve.bt_draw_bezier_line"
@@ -286,8 +285,11 @@ class BT_DrawBezierLine(BT_Draw):
 		set_handle_type(self, bezier_line, 'ALIGNED')
 
 	def invoke(self, context, event):
-		BT_Draw.invoke(self, context, event)
+		if not BT_Draw.init_draw(self, context):
+			return{'CANCELLED'}
+
 		context.window_manager.bt_modal_on = 'BT_LINE'
+		context.window_manager.modal_handler_add(self)
 		return{'RUNNING_MODAL'}
 
 	def add_point(self, context, event):
@@ -417,7 +419,8 @@ class BT_DrawBezierCurve(BT_Draw):
 		return curve.data.splines[0].bezier_points if curve.data.splines[0].type == 'BEZIER' else curve.data.splines[0].points
 
 	def invoke(self, context, event):
-		wm = context.window_manager
+		if not BT_Draw.init_draw(self, context):
+			return{'CANCELLED'}
 
 		if context.object is not None and context.object.type == 'CURVE' and context.mode == 'EDIT_CURVE' and len(self.get_points(context.object)) > 1:
 			self.curve = context.object
@@ -427,10 +430,9 @@ class BT_DrawBezierCurve(BT_Draw):
 		else:
 			self.curve = self.add_curve(context, self.spline_type, 'BézierCurve' if self.spline_type == 'BEZIER' else 'Polyline')
 			self.get_points(self.curve)[0].hide = True
-			self.new_spline = True
+			self.new_spline = True		
 
-		BT_Draw.invoke(self, context, event)
-
+		wm = context.window_manager		
 		wm.bt_modal_on = 'BT_CURVE' if self.spline_type=='BEZIER' else 'BT_POLYLINE'
 		
 		bpy.ops.object.mode_set(mode='EDIT')
@@ -445,6 +447,8 @@ class BT_DrawBezierCurve(BT_Draw):
 
 		self.curve.color = context.scene.bt_color
 		context.window.cursor_modal_set('CROSS')
+
+		context.window_manager.modal_handler_add(self)
 			
 		return {"RUNNING_MODAL"}
 
@@ -581,13 +585,21 @@ class BT_DrawPolyBezier(BT_Draw):
 	
 	def __init__(self, *args, **kwargs):
 		BT_Draw.__init__(self, *args, **kwargs)
-
+	
 	def invoke(self, context, event):
-		BT_Draw.invoke(self, context, event)
+		if not BT_Draw.init_draw(self, context):
+			return{'CANCELLED'}
+		
 		wm = context.window_manager
-		wm.bt_modal_on = 'BT_CURVE' if self.spline_type=='BEZIER' else 'BT_POLYLINE'
-		return{'RUNNING_MODAL'}
+		if self.to_bezier == 1:
+			wm.bt_modal_on = 'BT_POLYCURVE_MIN'
+		elif self.to_bezier == 2:
+			wm.bt_modal_on = 'BT_POLYCURVE_MAX'
 
+		context.window_manager.modal_handler_add(self)
+
+		return{'RUNNING_MODAL'}
+	
 	def build_polyline(self, context):
 		polyline = add_polyline(self, context, [point[1] for point in self.points], 'Polyline')
 
@@ -610,15 +622,6 @@ class BT_DrawPolyBezier(BT_Draw):
 		
 			self.curve_2d_handler = draw_2d_polyline(self, context, points, index_buffer)
 	
-	def invoke(self, context, event):
-		BT_Draw.invoke(self, context, event)
-		wm = context.window_manager
-		if self.to_bezier == 1:
-			wm.bt_modal_on = 'BT_POLYCURVE_MIN'
-		elif self.to_bezier == 2:
-			wm.bt_modal_on = 'BT_POLYCURVE_MAX'
-		return{'RUNNING_MODAL'}
-
 	def add_point(self, context, event):
 		cursor = get_cursor(self, event)
 		view_vector, ray_origin = get_view_vector_and_ray_origin(self, context, cursor)
@@ -728,8 +731,12 @@ class BT_DrawPolylineCircle(BT_Draw):
 		BT_Draw.__init__(self, *args, **kwargs)	
 	
 	def invoke(self, context, event):
-		BT_Draw.invoke(self, context, event)		
+		if not BT_Draw.init_draw(self, context):
+			return{'CANCELLED'}
+	
 		context.window_manager.bt_modal_on = 'BT_POLYCIRCLE'
+		context.window_manager.modal_handler_add(self)
+
 		return{'RUNNING_MODAL'}
 
 	def build_polyline_circle(self, context):
@@ -884,8 +891,12 @@ class BT_DrawPolylineRectangle(BT_Draw):
 		BT_Draw.__init__(self, *args, **kwargs)
 
 	def invoke(self, context, event):
-		BT_Draw.invoke(self, context, event)		
+		if not BT_Draw.init_draw(self, context):
+			return{'CANCELLED'}
+		
 		context.window_manager.bt_modal_on = 'BT_POLYRECTANGLE'
+		context.window_manager.modal_handler_add(self)
+
 		return{'RUNNING_MODAL'}
 
 	def build_polyline_rectangle(self, context):
@@ -1038,6 +1049,18 @@ class BT_Snap(Operator):
 		wm = context.window_manager
 		return wm.bt_modal_on != 'BT_SNAP' and context.object is not None and context.mode == 'EDIT_CURVE'
 
+	def invoke(self, context, event):
+		if not is_single_view3d(self, context):
+			return{'CANCELLED'}
+		
+		self.build_snap_map(context)
+		
+		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
+		context.window_manager.bt_modal_on = 'BT_SNAP'
+		context.window_manager.modal_handler_add(self)
+
+		return {'RUNNING_MODAL'}
+
 	def get_points(self, curve):		
 		return [point for point in curve.data.splines[0].bezier_points if point.select_control_point] if is_bezier(curve) else [point for point in curve.data.splines[0].points if point.select]	
 
@@ -1069,19 +1092,6 @@ class BT_Snap(Operator):
 	def remove_snap_targets_handler(self):
 		remove_gpu_draw_handler(self, self.snap_targets_handler)
 		self.snap_targets_handler = None
-	
-	def invoke(self, context, event):
-		if not context.space_data.type == 'VIEW_3D':
-			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
-			return {'CANCELLED'}		
-		
-		self.build_snap_map(context)
-		
-		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
-		context.window_manager.bt_modal_on = 'BT_SNAP'
-		context.window_manager.modal_handler_add(self)
-
-		return {'RUNNING_MODAL'}
 
 	def get_visible_curves(self, context):
 		curves = []
@@ -1236,8 +1246,7 @@ class BT_Split(Operator, BT_Cursor):
 			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
 			return {'CANCELLED'}
 
-		if not is_single_view3d(context):
-			self.report({'ERROR'}, "Can only work inside a single VIEW_3D space. Split VIEW_3D areas or Quad View are not supported!")
+		if not is_single_view3d(self, context):			
 			return {'CANCELLED'}
 
 		curve = context.object
@@ -1760,7 +1769,6 @@ class BT_SetBezierHandleType(Operator):
 
 		return {'FINISHED'}
 
-
 def get_bezier_point_index(bezier_points, point):
 	for index, bezier_point in enumerate(bezier_points):
 		if bezier_point == point:
@@ -1833,9 +1841,8 @@ class BT_Add(Operator, BT_Cursor):
 		return 0
 
 	def invoke(self, context, event):
-		if not context.space_data.type == 'VIEW_3D':
-			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
-			return {'CANCELLED'}
+		if not is_single_view3d(self, context):
+			return{'CANCELLED'}
 
 		curve = context.object		
 
@@ -2025,10 +2032,13 @@ class BT_Add(Operator, BT_Cursor):
 				self.screen_world_map_needs_update = False
 
 			nearest_screen_point = find_nearest_screen_point(self, get_cursor(self, event), self.screen_world_map)
-			
+			if not nearest_screen_point:
+				return {'RUNNING_MODAL'}
+
 			if get_distance(cursor, nearest_screen_point) <= self.RADIUS:
 				self.target_handler = draw_target(self, context, nearest_screen_point)
 			update_viewport(self, context)
+			return {'RUNNING_MODAL'}
 
 		elif event.type in {'ESC', 'RET'}:
 			self.remove_target_handler()
@@ -3475,7 +3485,6 @@ class BT_ConvertCurve(Operator):
 
 		return {'FINISHED'}
 
-
 # MESH OPS ######################################################################
 
 def get_quad_loop_verts_data(self, curve_1_interp_points_buffer, curve_2_interp_points_buffer):
@@ -4116,7 +4125,6 @@ def mathutils_interpolate_n_bezier_points(curve, count, *, world_space=True, pro
 
 	return interpolated_points
 
-
 def space_interpolate_bezier(curve, precision, count, *, debug=False):
 	spline = curve.data.splines[0]
 	bezier_points = spline.bezier_points
@@ -4125,7 +4133,7 @@ def space_interpolate_bezier(curve, precision, count, *, debug=False):
 	space_points = [matrix@interpolated_points[0]]
 	target_segment_length = round(spline.calc_length()/count, 9)
 	
-	length=0	
+	length=0
 	for index, point in enumerate(interpolated_points):	
 		if index+1 != len(interpolated_points):
 			point_next = interpolated_points[index+1]		
@@ -4294,27 +4302,24 @@ def reverse_curve(self, curve):
 				p1.weight =                 temp_p0['weight']
 				p1.weight_softbody =        temp_p0['weight_softbody']
 
-def is_single_view3d(context):
-	view3d_area = None
-	view3d_areas = [area for area in context.window.screen.areas if area.type == 'VIEW_3D']
+def is_single_view3d(self, context):
+	view3d_areas = [area for area in context.window.screen.areas if area.type == 'VIEW_3D']	
 	if len(view3d_areas) != 1:
-		return None
+		self.report({'ERROR'}, "Split VIEW_3D areas are not supported!")
+		return False
 	
-	view3d_area = view3d_areas[0]
-	
-	spaces = [space for space in view3d_area.spaces]
+	spaces = [space for space in view3d_areas[0].spaces]
 	if len(spaces) != 1:
-		return None
-
-	space = spaces[0]
+		self.report({'ERROR'}, "Can only work inside a single VIEW_3D space!")
+		return False
 	
-	region_quadviews = len(space.region_quadviews if space.region_quadviews is not None else 0)
-	if region_quadviews > 0:
-		return None
+	if len(spaces[0].region_quadviews) > 0:
+		self.report({'ERROR'}, "Quad Views are not supported!")
+		return False
 
-	return view3d_area
+	return True
 
-def get_view_3d(self, context):
+def get_view_3d(self, context):	
 	for area in bpy.context.window.screen.areas:		
 		if area.type == 'VIEW_3D':
 			return area
@@ -4586,7 +4591,7 @@ def draw_target(self, context, pos):
 
 def draw_snap_targets(self, context, points):
 	def draw():
-		shader.uniform_float("color", (0.0, 0.5, 0.5, 1.0))
+		shader.uniform_float("color", (0.0, 0.7, 0.7, 1.0))
 		batch.draw(shader)
 
 	shader = gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
