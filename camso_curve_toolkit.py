@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 2),
+	"version": (1, 0, 3),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -285,6 +285,10 @@ class BT_DrawBezierLine(BT_Draw):
 		set_handle_type(self, bezier_line, 'ALIGNED')
 
 	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
+
 		if not BT_Draw.init_draw(self, context):
 			return{'CANCELLED'}
 
@@ -419,6 +423,10 @@ class BT_DrawBezierCurve(BT_Draw):
 		return curve.data.splines[0].bezier_points if curve.data.splines[0].type == 'BEZIER' else curve.data.splines[0].points
 
 	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
+
 		if not BT_Draw.init_draw(self, context):
 			return{'CANCELLED'}
 
@@ -587,6 +595,10 @@ class BT_DrawPolyBezier(BT_Draw):
 		BT_Draw.__init__(self, *args, **kwargs)
 	
 	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
+
 		if not BT_Draw.init_draw(self, context):
 			return{'CANCELLED'}
 		
@@ -731,6 +743,10 @@ class BT_DrawPolylineCircle(BT_Draw):
 		BT_Draw.__init__(self, *args, **kwargs)	
 	
 	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
+
 		if not BT_Draw.init_draw(self, context):
 			return{'CANCELLED'}
 	
@@ -891,6 +907,10 @@ class BT_DrawPolylineRectangle(BT_Draw):
 		BT_Draw.__init__(self, *args, **kwargs)
 
 	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
+
 		if not BT_Draw.init_draw(self, context):
 			return{'CANCELLED'}
 		
@@ -1050,14 +1070,18 @@ class BT_Snap(Operator):
 		return wm.bt_modal_on != 'BT_SNAP' and context.object is not None and context.mode == 'EDIT_CURVE'
 
 	def invoke(self, context, event):
-		if not is_single_view3d(self, context):
-			return{'CANCELLED'}
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
 		
 		self.build_snap_map(context)
 		
 		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
 		context.window_manager.bt_modal_on = 'BT_SNAP'
 		context.window_manager.modal_handler_add(self)
+
+		if not len(self.get_points(context.object)):
+			self.report({'WARNING'}, self.bl_label + ': Select Polyline or Bézier control point(s). Use Left/Right Arrow to loop throughh points')
 
 		return {'RUNNING_MODAL'}
 
@@ -1082,9 +1106,9 @@ class BT_Snap(Operator):
 				screen_point = vector_3d_to_screen(self, context, point)
 				if screen_point is None or (screen_point.x > width or screen_point.x < 0) or (screen_point.y > height or  screen_point.y < 0):
 					continue			
-				self.snap_map[screen_point.freeze()] = point		
+				self.snap_map[screen_point.freeze()] = point
 		
-		self.snap_targets_handler = draw_snap_targets(self, context, [tuple(point) for point in self.snap_map.keys()])
+		self.snap_targets_handler = draw_snap_targets(self, context, [tuple(point) for point in self.snap_map.values()])
 
 	def calculate_gizmo_center(self, matrix, points):
 		return matrix@(sum((point.co.xyz for point in points), Vector()) / len(points))
@@ -1106,10 +1130,10 @@ class BT_Snap(Operator):
 		matrix = context.object.matrix_world
 		curve = context.object	
 		
-		if self.needs_update:
-			self.snap_map.clear()
-			self.build_snap_map(context)
-			self.needs_update = False		
+		# if self.needs_update:
+		# 	self.snap_map.clear()
+		# 	self.build_snap_map(context)
+		# 	self.needs_update = False		
 
 		if len(self.snap_map) > 0:
 			target = snap_get_target(self, context, cursor, self.snap_map).copy().freeze()
@@ -1122,7 +1146,7 @@ class BT_Snap(Operator):
 						point.co.xyz = translation@point.co.xyz
 						if len(point.co) == 3:	# is bezier point
 							point.handle_right = translation@point.handle_right
-							point.handle_left = translation@point.handle_left	
+							point.handle_left = translation@point.handle_left
 
 		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
 	
@@ -1164,6 +1188,12 @@ class BT_Snap(Operator):
 		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
 			self.snap(context, event, self.get_points(context.object))
 			return {'RUNNING_MODAL'}
+		
+		elif event.type == 'MOUSEMOVE':
+			if self.needs_update:
+				self.snap_map.clear()
+				self.build_snap_map(context)
+				self.needs_update = False
 
 		elif event.type == 'LEFT_ARROW' and event.value == 'PRESS':
 			self.select_next_point(context, 'left')
@@ -1841,6 +1871,10 @@ class BT_Add(Operator, BT_Cursor):
 		return 0
 
 	def invoke(self, context, event):
+		if not context.space_data.type == 'VIEW_3D':
+			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
+			return {'CANCELLED'}
+
 		if not is_single_view3d(self, context):
 			return{'CANCELLED'}
 
@@ -4598,7 +4632,7 @@ def draw_snap_targets(self, context, points):
 	batch = batch_for_shader(shader, 'POINTS', {"pos": points})
 	gpu.state.point_size_set(10)
 
-	handler = bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_PIXEL')
+	handler = bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_VIEW')
 	update_viewport(self, context)
 
 	return handler
