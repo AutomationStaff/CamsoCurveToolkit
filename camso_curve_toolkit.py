@@ -1074,14 +1074,19 @@ class BT_Snap(Operator):
 			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
 			return {'CANCELLED'}
 		
+		curve = context.object
 		self.build_snap_map(context)
 		
 		context.workspace.status_text_set('[LMB]: Snap [LEFT/RIGHT ARROW]: Select next point [ESC]: Quit')
 		context.window_manager.bt_modal_on = 'BT_SNAP'
-		context.window_manager.modal_handler_add(self)
+
+		if is_bezier(curve):
+			set_handle_type(self, curve, 'FREE')
 
 		if not len(self.get_points(context.object)):
 			self.report({'WARNING'}, self.bl_label + ': Select Polyline or Bézier control point(s). Use Left/Right Arrow to loop throughh points')
+		
+		context.window_manager.modal_handler_add(self)
 
 		return {'RUNNING_MODAL'}
 
@@ -4580,6 +4585,11 @@ def vector_3d_to_screen(self, context, vector):
 	rv3d = context.region_data
 	view_3d = get_view_3d(self, context)
 	return bpy_extras.view3d_utils.location_3d_to_region_2d(region, rv3d, vector)
+
+def vector_2d_to_world(self, context, vector):
+	region = context.region
+	rv3d = context.region_data
+	return bpy_extras.view3d_utils.region_2d_to_location_3d(region, rv3d, vector, Vector())
 
 def set_pivot(self, obj, pivot):
    current_pivot = obj.matrix_world.translation   
