@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 4),
+	"version": (1, 0, 5),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -42,9 +42,7 @@ import bpy_extras
 from bpy_extras import view3d_utils
 import gpu
 from gpu_extras.batch import batch_for_shader
-import random
 from bpy.utils import register_class, unregister_class
-from bpy.types import Operator
 from enum import Enum
 from bpy.types import Panel, Menu, Operator
 import bpy.utils.previews
@@ -511,22 +509,21 @@ class BT_DrawBezierCurve(BT_Draw):
 						points[0].handle_right = point
 						points[0].hide = False
 						self.new_spline = False						
-						points[0].handle_right_type='AUTO'
-						points[0].handle_left_type='AUTO'
-						points[-1].handle_right_type='FREE'
-						points[-1].handle_left_type='FREE'					
+						points[0].handle_right_type='VECTOR'
+						points[0].handle_left_type='VECTOR'
+						# points[-1].handle_right_type='FREE'
+						# points[-1].handle_left_type='FREE'					
 
 					else:
 						# now we can add a new point
 						points.add(1)
-						points[-1].co = point
-						points[-1].handle_left = point
-						points[-1].handle_right = point
-						points[-1].handle_right_type='AUTO'
-						points[-1].handle_left_type='AUTO'
-						points[-1].handle_right_type='FREE'
-						points[-1].handle_left_type='FREE'
-						points[-1].handle_right = point
+						points[-1].co = point						
+						points[-1].handle_left_type = 'VECTOR'
+						points[-1].handle_right_type = 'VECTOR'
+						# points[-1].handle_right_type='FREE'
+						# points[-1].handle_left_type='FREE'											
+						# points[-1].handle_right =  Matrix.Translation(points[-1].co) @ points[-1].co - points[-1].handle_left
+						
 				
 				elif self.spline_type == 'POLY':
 					if self.new_spline:                     
@@ -563,11 +560,11 @@ class BT_DrawBezierCurve(BT_Draw):
 				return {'FINISHED'}
 
 
-			# update_object_edit(context)			
-			if self.curve:
-				if self.spline_type == 'BEZIER':
-					set_handle_type(self, self.curve, 'VECTOR')
-					set_handle_type(self, self.curve, 'FREE')
+			# # update_object_edit(context)			
+			# if self.curve:
+			# 	if self.spline_type == 'BEZIER':
+			# 		set_handle_type(self, self.curve, 'VECTOR')
+			# 		set_handle_type(self, self.curve, 'FREE')
 
 			return {'FINISHED'}
 
@@ -929,7 +926,6 @@ class BT_DrawPolylineRectangle(BT_Draw):
 			polyline_rectangle = add_polyline(self, context, [point[1] for point in self.points], 'PolylineRectangle')
 			polyline_rectangle.location = diagonal[0][1].lerp(diagonal[1][1], 0.5)
 			polyline_rectangle.color = context.scene.bt_color
-
 			
 			return set(point[1].copy().freeze() for point in self.points)
 
@@ -1049,7 +1045,7 @@ class BT_DrawPolylineRectangle(BT_Draw):
 
 class BT_Snap(Operator):
 	bl_idname = "curve.bt_snap"
-	bl_label = "Snap curve control points"
+	bl_label = "Snap"
 	bl_description = "Snap selected control points to other Bézier curve or Polyline"
 	bl_options = {'REGISTER', 'UNDO'}
 
@@ -1256,7 +1252,7 @@ def calculate_new_bezier_point_at_t(self, points, t):
 
 class BT_Split(Operator, BT_Cursor):
 	bl_idname = "curve.bt_split"
-	bl_label = "Split Curve"
+	bl_label = "Split"
 	bl_description = "Split and separate a Bézier curve"
 	bl_options = {'REGISTER', 'UNDO'}	
 
@@ -1540,7 +1536,7 @@ class BT_Split(Operator, BT_Cursor):
 class BT_Join(Operator):
 	bl_idname = 'curve.bt_join'
 	bl_label = 'Join'
-	bl_description = 'Join 2 Bézier curves. The result is a new cubic Bézier. Change tension for the best matching result'
+	bl_description = 'Join 2 Bézier curves. The curves are expected to have the same direction. The active curve should be followed by the second curve in the same direction'
 	bl_options = {'REGISTER', 'UNDO'}
 	remove_src: bpy.props.BoolProperty(name='Remove source', default=True)
 
@@ -1602,7 +1598,7 @@ class BT_Join(Operator):
 class BT_Smooth(Operator):
 	bl_idname = 'curve.bt_smooth'
 	bl_label = 'Smooth'
-	bl_description = 'Smooth curve at the selected control point. It adds 1 support control point on each side of the selected point, which is then removed'
+	bl_description = 'Makes the curve smoother at the selected control point'
 	bl_options = {'REGISTER', 'UNDO'}
 	# invert_left: bpy.props.BoolProperty(name='Invert Left', description='Invert handle on the left', options={'SKIP_SAVE'})
 	# invert_right: bpy.props.BoolProperty(name='Invert Right', description='Invert handle on the right', options={'SKIP_SAVE'})
@@ -1683,8 +1679,8 @@ class BT_Smooth(Operator):
 
 class BT_Merge(Operator):
 	bl_idname = 'curve.bt_merge'
-	bl_label = 'Smooth'
-	bl_description = 'Merge 2 neighbouring Bézier control points at center'
+	bl_label = 'Merge two points'
+	bl_description = 'Merge two neighbouring Bézier control points at the center'
 	bl_options = {'REGISTER', 'UNDO'}
 
 	@classmethod
@@ -2094,12 +2090,12 @@ class BT_Add(Operator, BT_Cursor):
 		
 		return{'RUNNING_MODAL'}
 
-class BT_Slide(Operator):
-	bl_idname = 'curve.bt_slide_point'
-	bl_label = 'Slide Bézier Point'
-	bl_description = 'Slide Bézier control point'
+class BT_Move(Operator):
+	bl_idname = 'curve.bt_move_point'
+	bl_label = 'Move Bézier Point'
+	bl_description = 'Moves a Bézier point to a position on the spline segment. If the point is not naturally interpolated or moved/changed, the new starting position will be assigned automatically'
 	bl_options = {'REGISTER', 'UNDO'}
-	t: bpy.props.FloatProperty(min=0.001, soft_min=0.001, soft_max=0.999, max=0.999, name='Value', default=0.01)#, options={'SKIP_SAVE'}
+	t: bpy.props.FloatProperty(min=0.001, soft_min=0.001, soft_max=0.999, max=0.999, name='Value', default=0.5, options={'SKIP_SAVE'})
 
 	@classmethod
 	def poll(cls, context):
@@ -2214,10 +2210,10 @@ class BT_Slide(Operator):
 
 		return {'FINISHED'}
 
-class BT_LineUp(Operator):
-	bl_idname = 'curve.bt_line_up_points'
-	bl_label = 'Line up Bézier Points'
-	bl_description = 'Line up Bézier control point'
+class Flatten(Operator):
+	bl_idname = 'curve.bt_flatten_points'
+	bl_label = 'Flatten'
+	bl_description = 'Flatten Bézier points'
 	bl_options = {'REGISTER', 'UNDO'}
 
 	@classmethod
@@ -2229,7 +2225,6 @@ class BT_LineUp(Operator):
 		if not is_bezier(curve):
 			self.report({'ERROR'}, "Can only line up Bézier points")
 			return{'CANCELLED'}
-
 
 		bezier_points = curve.data.splines[0].bezier_points
 		selected_points = [point for point in bezier_points if point.select_control_point]
@@ -2330,8 +2325,8 @@ def spawn_empty(name, location, *, size=0.05):
 
 class BT_Offset(Operator):
 	bl_idname = 'curve.bt_offset'
-	bl_label = 'Offset Bézier Curve'
-	bl_description = 'Offset Bézier Curve'
+	bl_label = 'Offset'
+	bl_description = 'Offset a Bézier curve'
 	bl_options = {'REGISTER', 'UNDO'}
 	distance: bpy.props.FloatProperty(name='Distance', description='Distance from the source curve')
 	rotation: bpy.props.FloatProperty(name='Rotation°', description='Angle of rotation around the source curve in degrees')
@@ -2417,7 +2412,7 @@ class BT_Offset(Operator):
 		curve = context.object	
 		pivot = curve.location.copy()
 
-		bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)	
+		# bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)	
 
 		if not is_bezier(curve):
 			self.report({'ERROR'}, "Selected object is not a Bézier curve")
@@ -2568,7 +2563,7 @@ class BT_Offset(Operator):
 class BT_Remove(Operator, BT_Cursor):
 	bl_idname = 'curve.bt_remove_point'
 	bl_label = 'Remove Point'
-	bl_description = 'Remove selected Bézier control point'
+	bl_description = 'Remove a Bézier point'
 	bl_options = {'REGISTER', 'UNDO'}
 	# invert_left: bpy.props.BoolProperty(name='Invert Left', description='Invert handle on the left', options={'SKIP_SAVE'})
 	# invert_right: bpy.props.BoolProperty(name='Invert Right', description='Invert handle on the right', options={'SKIP_SAVE'})
@@ -2645,10 +2640,10 @@ class BT_Remove(Operator, BT_Cursor):
 
 class BT_Blend(Operator):
 	bl_idname = 'curve.bt_blend_bezier'
-	bl_label = "Blend Bézier"
-	bl_description = 'Build an array of interpolated Bézier curves between two Rails. Takes 2 parallel Bézier curves'
+	bl_label = "Blend 2x0"
+	bl_description = 'Build an array of interpolated Bézier curves between two Rails. Takes 2 Bézier curves opposite to each other'
 	bl_options = {'REGISTER', 'UNDO'}
-	count: bpy.props.IntProperty(default=12, min=1, name = 'Density')
+	count: bpy.props.IntProperty(default=3, min=1, name = 'Density')
 
 	@classmethod
 	def poll(cls, context):
@@ -2706,8 +2701,8 @@ class BT_Reverse(Operator):
 
 class BT_CalcCurveLength(Operator):
 	bl_idname = 'curve.bt_calculate_curve_length'
-	bl_label = "Calculate Curve Length"
-	bl_description = 'Calculate full curve length based on the sum of polylengths of its splines'
+	bl_label = "Get Length"
+	bl_description = 'Calculate curve length'
 	bl_options = {'REGISTER', 'UNDO'}
 
 	@classmethod
@@ -2722,8 +2717,8 @@ class BT_CalcCurveLength(Operator):
 
 class BT_SetCurveLength(Operator):
 	bl_idname = 'curve.bt_set_curve_length'
-	bl_label = "Set Curve Length"
-	bl_description = 'Set full curve length based on the sum of polylengths of its splines'
+	bl_label = "Set Length"
+	bl_description = 'Set curve length'
 	bl_options = {'REGISTER', 'UNDO'}
 	input_length: bpy.props.FloatProperty(default=1.0, min=0, name='Set Length: ')
 	
@@ -2765,7 +2760,7 @@ class BT_SetCurveLength(Operator):
 
 class BT_Blend1Profile2Rails(Operator):
 	bl_idname = 'curve.bt_blend_1_profile_2_rails'
-	bl_label = 'Blend Bézier One Rail'
+	bl_label = 'Blend 2x1'
 	bl_description = 'Build an array of interpolated Bézier curves. Takes 3 Bézier curves:: 2 Rails and 1 Profile (active object)'
 	bl_options = {'REGISTER', 'UNDO'}
 	count: bpy.props.IntProperty(default=12, min=1, name='Count')
@@ -2912,7 +2907,7 @@ def blend_2_profiles_2_rails(self, context, count, *, curves):
 class BT_Blend2Profiles2Rails(Operator):
 	bl_options = {'REGISTER', 'UNDO'}
 	bl_idname = 'curve.bt_blend_2_profiles_2_rails'
-	bl_label = 'Blend Bézier Two Rails'
+	bl_label = 'Blend 2x2'
 	bl_description = 'Build an array of interpolated Bézier curves. Takes 4 Bézier curves: 2 Rails and 2 Profiles'
 	count: bpy.props.IntProperty(default=1, min=1, soft_min=1, name = 'Count')
 	precision: bpy.props.IntProperty(name='Precision', min=1, max=100, default=10, description='Resolution of constraint curve. Low - may lead to missing points, high - to slow calculation')
@@ -3686,7 +3681,7 @@ def loft_polyline(self, context, curves, flip_normals):
 
 class BT_Loft(Operator):
 	bl_idname = 'object.bt_bezier_mesh_loft'
-	bl_label = 'BT_Loft'
+	bl_label = 'Loft'
 	bl_description = 'Build a Loft Mesh. Takes at least 2 parallel Bézier or Polyline curves'
 	bl_options = {'REGISTER', 'UNDO'}
 	resolution: bpy.props.IntProperty(name='Resolution', default=8, min=1)
@@ -3760,7 +3755,7 @@ class BT_Loft(Operator):
 
 class BT_Patch(Operator):
 	bl_idname = "object.bt_build_bezier_mesh_patch"
-	bl_label = "BT_Patch"
+	bl_label = "Patch"
 	bl_options = {'REGISTER', 'UNDO'}
 	bl_description = 'Build a Patch mesh. Takes 4 Bézier curves: 2 Rails and 2 Profiles'
 	resolution_u: bpy.props.IntProperty(default=8, min=1, max=100, name='Resolution U')      
@@ -4653,7 +4648,7 @@ def draw_snap_targets(self, context, points):
 
 def draw_2d_polyline(self, context, points, index_buffer):
 	def draw():
-		shader.uniform_float("color", (0.0, 1.0, 0.5, 1.0))
+		shader.uniform_float("color", context.scene.bt_color)
 		batch.draw(shader)
 
 	shader = gpu.shader.from_builtin('UNIFORM_COLOR')
@@ -4697,6 +4692,18 @@ preview_collection.load('polybezier_max_icon', dir + "/polybezier_max.png", "IMA
 preview_collection.load('polyline_icon', dir + "/polyline.png", "IMAGE")
 preview_collection.load('polyline_circle_icon', dir + "/polyline_circle.png", "IMAGE")
 preview_collection.load('polyline_rectangle_icon', dir + "/polyline_rectangle.png", "IMAGE")
+preview_collection.load('settings_icon', dir + "/settings.png", "IMAGE")
+
+class BT_Settings(Menu):
+	bl_label = 'Settings'
+	bl_idname = 'OBJECT_MT_bt_settings'
+	
+	def draw(self, context):
+		layout = self.layout		
+		column = layout.column(align=True)
+		column.scale_x = 0.5
+		column.prop(context.scene, 'bt_resolution', text='Resolution')	
+		column.prop(context.scene, 'bt_color', text='Color')
 
 class BT_BuildCurvePanel(Panel):
 	bl_label = "Build Curve"
@@ -4712,33 +4719,39 @@ class BT_BuildCurvePanel(Panel):
 		wm = context.window_manager		
 		column = layout.column(align=True)		
 
-		row = layout.row(align=True)
-		row.scale_x = 1.5
-		row.scale_y = 1.25
-		# column = layout.column(align=True)		
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25			
 		row.operator(BT_DrawBezierLine.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_LINE' else False), icon_value=preview_collection['bezier_line_icon'].icon_id)		
 		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False), icon_value=preview_collection['polybezier_min_icon'].icon_id).to_bezier=1							 		    
 		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False), icon_value=preview_collection['polybezier_max_icon'].icon_id).to_bezier=2	
 		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_CURVE' else False), icon_value=preview_collection['bezier_polyline_icon'].icon_id).spline_type='BEZIER'
 
-		row = layout.row(align=True)
-		row.scale_x = 1.5
+		column = layout.column(align=True)
+		row = column.split(align=True)		
 		row.scale_y = 1.25
 		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYLINE' else False), icon_value=preview_collection['polyline_icon'].icon_id).spline_type='POLY'	
 		row.operator(BT_DrawPolylineCircle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYCIRCLE' else False), icon_value=preview_collection['polyline_circle_icon'].icon_id)
 		row.operator(BT_DrawPolylineRectangle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYRECTANGLE' else False), icon_value=preview_collection['polyline_rectangle_icon'].icon_id)
+		row.operator('wm.call_menu', text='', icon_value=preview_collection['settings_icon'].icon_id).name = BT_Settings.bl_idname
 
-		header, body = layout.panel('OBJECT_PT_BT_DRAW_OPTIONS_PANEL')
-		header.label(text='Preferences')
-		if body is not None:
-			column = body.column(align=True)
-			row = column.row(align=True)
-			row.label(text="Resolution: ")
-			row.prop(context.scene, 'bt_resolution', text='')
-			row = column.row(align=True)
-			column.separator(factor=1.0)			
-			row = column.row(align=True)
-			row.prop(context.scene, 'bt_color')
+preview_collection.load('add_icon', dir + "/add.png", "IMAGE")
+preview_collection.load('remove_icon', dir + "/remove.png", "IMAGE")
+preview_collection.load('move_icon', dir + "/move.png", "IMAGE")
+preview_collection.load('smooth_icon', dir + "/smooth.png", "IMAGE")
+preview_collection.load('merge_icon', dir + "/merge.png", "IMAGE")
+preview_collection.load('flatten_icon', dir + "/flatten.png", "IMAGE")
+preview_collection.load('split_icon', dir + "/split.png", "IMAGE")
+preview_collection.load('join_icon', dir + "/join.png", "IMAGE")
+preview_collection.load('offset_icon', dir + "/offset.png", "IMAGE")
+preview_collection.load('snap_icon', dir + "/snap.png", "IMAGE")
+preview_collection.load('set_handle_type_icon', dir + "/set_handle_type.png", "IMAGE")
+preview_collection.load('reverse_icon', dir + "/reverse.png", "IMAGE")
+preview_collection.load('convert_icon', dir + "/convert.png", "IMAGE")
+preview_collection.load('transfer_icon', dir + "/transfer.png", "IMAGE")
+preview_collection.load('interpolate_icon', dir + "/interpolate.png", "IMAGE")
+preview_collection.load('get_length_icon', dir + "/get_length.png", "IMAGE")
+preview_collection.load('set_length_icon', dir + "/set_length.png", "IMAGE")
 
 class BT_EditBezierPanel(Panel):
 	bl_label = "Edit Bézier"
@@ -4752,28 +4765,47 @@ class BT_EditBezierPanel(Panel):
 	def draw(self, context):
 		layout = self.layout
 		wm = context.window_manager
-		column = layout.column(align=True)
-		split = column.split(align=True)
-		split.operator(BT_CalcCurveLength.bl_idname, text = "Get Length")
-		split.operator(BT_SetCurveLength.bl_idname, text = "Set Length")
-		column.separator()
 
-		column.operator(BT_Add.bl_idname, text = "Add", depress=(True if wm.bt_modal_on=='BT_ADD_POINT' else False))
-		column.operator(BT_Remove.bl_idname, text = "Remove")
-		column.operator(BT_Slide.bl_idname, text = "Slide")
-		column.operator(BT_Smooth.bl_idname, text = "Smooth")
-		column.operator(BT_Merge.bl_idname, text = "Merge")	
-		column.operator(BT_LineUp.bl_idname, text = "Line Up")		
-		column.operator(BT_Split.bl_idname, text = "Split", depress=(True if wm.bt_modal_on=='BT_SPLIT' else False))
-		column.operator(BT_Join.bl_idname, text = "Join")
-		column.operator(BT_Offset.bl_idname, text = "Offset")
-		column.operator(BT_Snap.bl_idname, text = "Snap", depress=(True if wm.bt_modal_on=='BT_SNAP' else False))
-		column.separator()
-		column.operator(BT_SetBezierHandleType.bl_idname, text = "Set Handle Type")	
-		column.operator(BT_Reverse.bl_idname, text = "Reverse")
-		column.operator(BT_ConvertCurve.bl_idname, text = "Convert")
-		column.operator(BT_TransferCurveData.bl_idname, text = "Transfer Data")
-		column.operator(BT_BezierInterpolate.bl_idname, text = "Interpolate")		
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25
+		row.operator(BT_Add.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_ADD_POINT' else False), icon_value=preview_collection['add_icon'].icon_id)
+		row.operator(BT_Remove.bl_idname, text = "", icon_value=preview_collection['remove_icon'].icon_id)
+		row.operator(BT_Move.bl_idname, text = "", icon_value=preview_collection['move_icon'].icon_id)
+		row.operator(BT_Merge.bl_idname, text = "", icon_value=preview_collection['merge_icon'].icon_id)
+
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25	
+		row.operator(BT_Smooth.bl_idname, text = "", icon_value=preview_collection['smooth_icon'].icon_id)
+		row.operator(Flatten.bl_idname, text = "", icon_value=preview_collection['flatten_icon'].icon_id)
+		row.operator(BT_Split.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_SPLIT' else False), icon_value=preview_collection['split_icon'].icon_id)		
+			
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25
+		row.operator(BT_Join.bl_idname, text = "", icon_value=preview_collection['join_icon'].icon_id)		
+		row.operator(BT_Offset.bl_idname, text = "", icon_value=preview_collection['offset_icon'].icon_id)
+		row.operator(BT_Snap.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_SNAP' else False), icon_value=preview_collection['snap_icon'].icon_id)
+		
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25	
+		row.operator(BT_SetBezierHandleType.bl_idname, text = "", icon_value=preview_collection['set_handle_type_icon'].icon_id)	
+		row.operator(BT_Reverse.bl_idname, text = "", icon_value=preview_collection['reverse_icon'].icon_id)
+		row.operator(BT_ConvertCurve.bl_idname, text = "", icon_value=preview_collection['convert_icon'].icon_id)
+
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25
+		row.operator(BT_TransferCurveData.bl_idname, text = "", icon_value=preview_collection['transfer_icon'].icon_id)
+		row.operator(BT_BezierInterpolate.bl_idname, text = "", icon_value=preview_collection['interpolate_icon'].icon_id)		
+		row.operator(BT_CalcCurveLength.bl_idname, text = "", icon_value=preview_collection['get_length_icon'].icon_id)
+		row.operator(BT_SetCurveLength.bl_idname, text = "", icon_value=preview_collection['set_length_icon'].icon_id)
+
+preview_collection.load('blend2x0_icon', dir + "/blend2x0.png", "IMAGE")
+preview_collection.load('blend2x1_icon', dir + "/blend2x1.png", "IMAGE")
+preview_collection.load('blend2x2_icon', dir + "/blend2x2.png", "IMAGE")
 
 class BT_BlendPanel(Panel):
 	bl_label = "Blend Bézier"
@@ -4787,9 +4819,14 @@ class BT_BlendPanel(Panel):
 	def draw(self, context):
 		layout = self.layout
 		column = layout.column(align=True)
-		column.operator(BT_Blend.bl_idname, text = "Blend 2x0")
-		column.operator(BT_Blend1Profile2Rails.bl_idname, text = "Blend 2x1")
-		column.operator(BT_Blend2Profiles2Rails.bl_idname, text = "Blend 2x2")
+		row = column.split(align=True)		
+		row.scale_y = 1.25
+		row.operator(BT_Blend.bl_idname, text = "", icon_value=preview_collection['blend2x0_icon'].icon_id)
+		row.operator(BT_Blend1Profile2Rails.bl_idname, text = "", icon_value=preview_collection['blend2x1_icon'].icon_id)
+		row.operator(BT_Blend2Profiles2Rails.bl_idname, text = "", icon_value=preview_collection['blend2x2_icon'].icon_id)
+
+preview_collection.load('loft_icon', dir + "/loft.png", "IMAGE")
+preview_collection.load('patch_icon', dir + "/patch.png", "IMAGE")
 
 class BT_BuildMeshPanel(Panel):
 	bl_label = "Build Mesh"
@@ -4803,8 +4840,10 @@ class BT_BuildMeshPanel(Panel):
 	def draw(self, context):
 		layout = self.layout
 		column = layout.column(align=True)
-		column.operator(BT_Loft.bl_idname, text = "Loft")
-		column.operator(BT_Patch.bl_idname, text = "Patch")
+		row = column.split(align=True)		
+		row.scale_y = 1.25
+		row.operator(BT_Loft.bl_idname, text = "", icon_value=preview_collection['loft_icon'].icon_id)		
+		row.operator(BT_Patch.bl_idname, text = "", icon_value=preview_collection['patch_icon'].icon_id)
 
 ##################################################################################################
 
@@ -4813,6 +4852,7 @@ classes = (
 	BT_EditBezierPanel,
 	BT_BlendPanel,
 	BT_BuildMeshPanel,
+	BT_Settings,
 	BT_Blend,
 	BT_Blend1Profile2Rails,
 	BT_Blend2Profiles2Rails,
@@ -4822,8 +4862,8 @@ classes = (
 	BT_DrawPolylineCircle,
 	BT_DrawPolylineRectangle,
 	BT_Add,
-	BT_Slide,
-	BT_LineUp,
+	BT_Move,
+	Flatten,
 	BT_Offset,
 	BT_Remove,
 	BT_Split,
@@ -4842,14 +4882,12 @@ classes = (
 	BT_BezierInterpolate
 )
 
-bt_addon_keymaps = []
-
 def register():
 	for cls in classes:
 		bpy.utils.register_class(cls)
 
 	bpy.types.Scene.bt_resolution = bpy.props.IntProperty(default=12, min=3, name='', description='Curve\'s smoothness. It is a value stored in the scene and assigned to every new curve. For changing resolution of an active curve go to [Active Spline] settings')
-	bpy.types.Scene.bt_color = bpy.props.FloatVectorProperty(name='Color', subtype='COLOR_GAMMA', 
+	bpy.types.Scene.bt_color = bpy.props.FloatVectorProperty(name='Color', subtype='COLOR', 
 		size=4, min=0, max=1.0, default=(0.0, 1.0, 0.5, 1.0),
 		description='Color assigned to every new curve. Only takes effect when [Viewport Shading-> Wireframe Color-> Object]')
 
