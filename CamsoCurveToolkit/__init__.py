@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 5),
+	"version": (1, 0, 6),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -573,7 +573,7 @@ class BT_DrawBezierCurve(BT_Draw):
 class BT_DrawPolyBezier(BT_Draw):
 	bl_idname = "curve.bt_draw_polybezier"
 	bl_label = "Poly Bézier Curve"
-	bl_description = "Poly Bézier Min is constructed by passing through 4 given points of a drawn polyline. Poly Bézier Max building is continuous until finished"
+	bl_description = "Poly Bézier Min is constructed by passing through 4 given points of a polyline. Poly Bézier Max building is continuous until finished"
 	bl_options = {'REGISTER', 'UNDO'}
 	to_bezier: bpy.props.IntProperty(min=0, max=2, default=0, options={'HIDDEN', 'SKIP_SAVE'})
 	
@@ -586,6 +586,8 @@ class BT_DrawPolyBezier(BT_Draw):
 		BT_Draw.__init__(self, *args, **kwargs)
 	
 	def invoke(self, context, event):
+		bpy.ops.object.select_all(action='DESELECT')
+
 		if not context.space_data.type == 'VIEW_3D':
 			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
 			return {'CANCELLED'}
@@ -601,10 +603,7 @@ class BT_DrawPolyBezier(BT_Draw):
 
 		context.window_manager.modal_handler_add(self)
 
-		return{'RUNNING_MODAL'}
-	
-	def build_polyline(self, context):
-		polyline = add_polyline(self, context, [point[1] for point in self.points], 'Polyline')
+		return{'RUNNING_MODAL'}	
 
 	def draw_screen_polyline(self, context, cursor):
 		points = [point[0] for point in self.points if point is not None]
@@ -679,11 +678,11 @@ class BT_DrawPolyBezier(BT_Draw):
 		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
 			self.add_point(context, event)
 
-			if len(self.points) == 4 and self.to_bezier == 1: # bulid min poly bezier and finish			
+			if len(self.points) == 4 and self.to_bezier == 1: # bulid a short polybezier and finish			
 				self.remove_target_handler()
 				self.remove_curve_2d_handler()
 				update_viewport(self, context)
-				self.build_polyline(context)
+				add_polyline(self, context, [point[1] for point in self.points], 'Polyline')
 				bpy.ops.curve.bt_convert_curve(keep_all_points=False, resolution=context.scene.bt_resolution)
 				self.points.clear()
 				context.workspace.status_text_set(None)
@@ -704,7 +703,7 @@ class BT_DrawPolyBezier(BT_Draw):
 			self.remove_curve_2d_handler()
 			update_viewport(self, context)
 			if len(self.points) > 2:
-				self.build_polyline(context)
+				add_polyline(self, context, [point[1] for point in self.points], 'Polyline')
 				match(self.to_bezier):
 					case 0:
 						pass
@@ -2216,18 +2215,40 @@ class Flatten(Operator):
 	bl_description = 'Flatten Bézier points'
 	bl_options = {'REGISTER', 'UNDO'}
 
+	axis: bpy.props.BoolVectorProperty(subtype='XYZ', options={'SKIP_SAVE'})
+	xyz: bpy.props.BoolProperty(name='XYZ')
+
 	@classmethod
 	def poll(cls, context):
 		return context.object is not None and context.mode == 'EDIT_CURVE'
+
+	def draw(self, context):
+		layout = self.layout
+		column = layout.column()
+		row = column.row(align=True)		
+		row.prop(self, 'axis', text='Axis', toggle=True)
+		row.prop(self, 'xyz', text='XYZ', toggle=True)
+
+	# def invoke(self, context, event):
+	# 	if self.xyz:
+	# 		for index, val in enumerate(self.axis):
+	# 			val[index] = True
+	# 	print(self.axis[:])
+	# 	return self.execute(context)
 	
 	def execute(self, context):
-		curve = context.object
+		curve = context.object			
 		if not is_bezier(curve):
-			self.report({'ERROR'}, "Can only line up Bézier points")
+			self.report({'ERROR'}, "Can only flatten Bézier points!")
 			return{'CANCELLED'}
 
+		update_edit_object_edit(context)
+		axis = self.axis			
 		bezier_points = curve.data.splines[0].bezier_points
 		selected_points = [point for point in bezier_points if point.select_control_point]
+
+		if self.xyz:
+			axis=(True, True, True)
 
 		if not len(selected_points) > 1:
 			self.report({'ERROR'}, self.bl_label + ': Select at least 2 Bézier control points and their handles to line up')
@@ -2248,14 +2269,41 @@ class Flatten(Operator):
 		line = Vector((selected_points[0].co - selected_points[-1].co))
 		
 		for point in selected_points:
-			if point not in (selected_points[0], selected_points[-1]):
-				point.co = point.co.project(line)
+			if point not in (selected_points[0], selected_points[-1]):				
+				px = point.co.copy().project(line).x
+				py = point.co.copy().project(line).y	
+				pz = point.co.copy().project(line).z
+
+				if axis[0]:
+					point.co.x = px
+				if axis[1]:
+					point.co.y = py
+				if axis[2]:
+					point.co.z = pz
 
 			if point.select_right_handle:				
-				point.handle_right = point.handle_right.project(line)
+				hrx = point.handle_right.copy().project(line).x
+				hry = point.handle_right.copy().project(line).y
+				hrz = point.handle_right.copy().project(line).z
+
+				if axis[0]:
+					point.handle_right.x = hrx
+				if axis[1]:
+					point.handle_right.y = hry
+				if axis[2]:
+					point.handle_right.z = hrz
 
 			if point.select_left_handle:				
-				point.handle_left = point.handle_left.project(line)
+				hlx = point.handle_left.copy().project(line).x
+				hly = point.handle_left.copy().project(line).y
+				hlz = point.handle_left.copy().project(line).z
+
+				if axis[0]:
+					point.handle_left.x = hlx
+				if axis[1]:
+					point.handle_left.y = hly
+				if axis[2]:
+					point.handle_left.z = hlz
 
 		for point in bezier_points:
 			point.co = offset @ point.co
@@ -3015,8 +3063,7 @@ def add_polyline(self, context, coords, name):
 	if len(coords) > 0:
 		spline = curve.splines.new('POLY')
 		
-		spline.points.add(len(coords)-1)
-		# print(len(spline.points))
+		spline.points.add(len(coords)-1)		
 		
 		for index, coord in enumerate(coords):
 			if spline.points[index] is not None:
@@ -3028,9 +3075,7 @@ def add_polyline(self, context, coords, name):
 	bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
 
 	for obj in sel:
-		obj.select_set(True)
-
-	# polyline.color = context.scene.bt_color
+		obj.select_set(True)	
 
 	return polyline
 
@@ -3465,7 +3510,7 @@ class BT_ConvertCurve(Operator):
 		sel = context.selected_objects
 
 		bpy.ops.object.mode_set(mode='OBJECT')
-		bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)   
+		# bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)   
   
 		converted = []
 
@@ -3520,6 +3565,8 @@ class BT_ConvertCurve(Operator):
 			
 			if self.remove_src:
 				bpy.data.objects.remove(curve)
+
+		bpy.ops.object.select_all(action='DESELECT')
 
 		return {'FINISHED'}
 
