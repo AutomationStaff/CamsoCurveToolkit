@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 6),
+	"version": (1, 0, 7),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -46,7 +46,6 @@ from bpy.utils import register_class, unregister_class
 from enum import Enum
 from bpy.types import Panel, Menu, Operator
 import bpy.utils.previews
-
 
 # CURVE OPS #####################################################################
 
@@ -1541,7 +1540,7 @@ class BT_Join(Operator):
 
 	@classmethod
 	def poll(cls, context):
-		return context.object is not None and context.object.type == 'CURVE'
+		return context.object is not None and is_bezier(context.object)
 
 	def execute(self, context):
 		if not len(context.selected_objects) == 2:
@@ -1766,7 +1765,7 @@ class BT_SetBezierHandleType(Operator):
 
 	@classmethod
 	def poll(cls, context):
-		return context.object is not None and context.object.type == 'CURVE'
+		return context.object is not None and is_bezier(context.object)
 
 	def invoke(self, context, event):
 		if not context.space_data.type == 'VIEW_3D':
@@ -2209,12 +2208,11 @@ class BT_Move(Operator):
 
 		return {'FINISHED'}
 
-class Flatten(Operator):
+class BT_Flatten(Operator):
 	bl_idname = 'curve.bt_flatten_points'
 	bl_label = 'Flatten'
 	bl_description = 'Flatten Bézier points'
 	bl_options = {'REGISTER', 'UNDO'}
-
 	axis: bpy.props.BoolVectorProperty(subtype='XYZ', options={'SKIP_SAVE'})
 	xyz: bpy.props.BoolProperty(name='XYZ')
 
@@ -2229,13 +2227,6 @@ class Flatten(Operator):
 		row.prop(self, 'axis', text='Axis', toggle=True)
 		row.prop(self, 'xyz', text='XYZ', toggle=True)
 
-	# def invoke(self, context, event):
-	# 	if self.xyz:
-	# 		for index, val in enumerate(self.axis):
-	# 			val[index] = True
-	# 	print(self.axis[:])
-	# 	return self.execute(context)
-	
 	def execute(self, context):
 		curve = context.object			
 		if not is_bezier(curve):
@@ -2248,7 +2239,7 @@ class Flatten(Operator):
 		selected_points = [point for point in bezier_points if point.select_control_point]
 
 		if self.xyz:
-			axis=(True, True, True)
+			axis=(True, True, True)		
 
 		if not len(selected_points) > 1:
 			self.report({'ERROR'}, self.bl_label + ': Select at least 2 Bézier control points and their handles to line up')
@@ -2270,9 +2261,10 @@ class Flatten(Operator):
 		
 		for point in selected_points:
 			if point not in (selected_points[0], selected_points[-1]):				
-				px = point.co.copy().project(line).x
-				py = point.co.copy().project(line).y	
-				pz = point.co.copy().project(line).z
+				proj = point.co.project(line)
+				px = proj.x
+				py = proj.y	
+				pz = proj.z
 
 				if axis[0]:
 					point.co.x = px
@@ -2281,10 +2273,11 @@ class Flatten(Operator):
 				if axis[2]:
 					point.co.z = pz
 
-			if point.select_right_handle:				
-				hrx = point.handle_right.copy().project(line).x
-				hry = point.handle_right.copy().project(line).y
-				hrz = point.handle_right.copy().project(line).z
+			if point.select_right_handle:
+				proj = point.handle_right.project(line)
+				hrx = proj.x
+				hry = proj.y
+				hrz = proj.z
 
 				if axis[0]:
 					point.handle_right.x = hrx
@@ -2293,10 +2286,11 @@ class Flatten(Operator):
 				if axis[2]:
 					point.handle_right.z = hrz
 
-			if point.select_left_handle:				
-				hlx = point.handle_left.copy().project(line).x
-				hly = point.handle_left.copy().project(line).y
-				hlz = point.handle_left.copy().project(line).z
+			if point.select_left_handle:
+				proj = point.handle_left.project(line)
+				hlx = proj.x
+				hly = proj.y
+				hlz = proj.z
 
 				if axis[0]:
 					point.handle_left.x = hlx
@@ -2306,9 +2300,9 @@ class Flatten(Operator):
 					point.handle_left.z = hlz
 
 		for point in bezier_points:
-			point.co = offset @ point.co
-			point.handle_right = offset @ point.handle_right
-			point.handle_left = offset @ point.handle_left
+			point.co = offset@point.co
+			point.handle_right = offset@point.handle_right
+			point.handle_left = offset@point.handle_left
 
 		return {'FINISHED'}
 
@@ -2394,7 +2388,7 @@ class BT_Offset(Operator):
 
 	@classmethod
 	def poll(cls, context):
-		return context.object is not None and context.object.type == 'CURVE'
+		return context.object is not None and is_bezier(context.object)
 
 	def rotate(self, vector, axis, angle): #https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula	
 		return vector*cos(angle) + (axis.cross(vector))*sin(angle) + axis*(axis.dot(vector))*(1 - cos(angle))
@@ -2732,8 +2726,8 @@ class BT_Blend(Operator):
 
 class BT_Reverse(Operator):
 	bl_idname = "curve.bt_reverse_curve"
-	bl_label = "Reverse Bézier Curve"
-	bl_description = "Reverse Bézier Curve"
+	bl_label = "Reverse"
+	bl_description = "Reverse Curve"
 	bl_options = {'REGISTER', 'UNDO'}
 
 	@classmethod
@@ -2784,6 +2778,10 @@ class BT_SetCurveLength(Operator):
 		for curve in context.selected_objects:
 			# pivot = curve.location.copy()           
 			length = calculate_curve_length(self, curve)
+			if not length > 0:
+				self.report({'WARNING'}, "Zero-length curves can't be scaled!")
+				return {'CANCELLED'}
+
 			scale = self.input_length/length
 
 			if curve.type == 'CURVE':
@@ -3279,7 +3277,7 @@ class BT_BezierInterpolate(Operator):
 
 	@classmethod
 	def poll(cls, context):
-		return context.object is not None and context.object.type=='CURVE'
+		return context.object is not None and is_bezier(context.object)
 
 	def draw(self, context):
 		layout = self.layout
@@ -3310,7 +3308,7 @@ class BT_BezierInterpolate(Operator):
 
 class BT_ConvertCurve(Operator):
 	bl_idname = 'curve.bt_convert_curve'
-	bl_label = 'Convert Curve'
+	bl_label = 'Convert'
 	bl_description = 'Convert to Bézier or Polyline'
 	bl_options = {'REGISTER', 'UNDO'}
 	type: bpy.props.EnumProperty(items=[('Bezier', 'Bézier', ''), ('Polyline', 'Polyline', '')], name='Type: ')
@@ -4729,28 +4727,20 @@ def update_object_edit_object(context):
 		bpy.ops.object.mode_set(mode = 'OBJECT')
 
 # UI ############################################################################################
-
-preview_collection = bpy.utils.previews.new()
-dir = os.path.join(os.path.dirname(__file__), "icons")
-preview_collection.load('bezier_line_icon', dir + "/bezier_line.png", "IMAGE")
-preview_collection.load('bezier_polyline_icon', dir + "/bezier_polyline.png", "IMAGE")
-preview_collection.load('polybezier_min_icon', dir + "/polybezier_min.png", "IMAGE")
-preview_collection.load('polybezier_max_icon', dir + "/polybezier_max.png", "IMAGE")
-preview_collection.load('polyline_icon', dir + "/polyline.png", "IMAGE")
-preview_collection.load('polyline_circle_icon', dir + "/polyline_circle.png", "IMAGE")
-preview_collection.load('polyline_rectangle_icon', dir + "/polyline_rectangle.png", "IMAGE")
-preview_collection.load('settings_icon', dir + "/settings.png", "IMAGE")
+pcoll = None
 
 class BT_Settings(Menu):
 	bl_label = 'Settings'
 	bl_idname = 'OBJECT_MT_bt_settings'
+	bl_description = 'Properties assigned to a new curve'
 	
 	def draw(self, context):
 		layout = self.layout		
 		column = layout.column(align=True)
 		column.scale_x = 0.5
-		column.prop(context.scene, 'bt_resolution', text='Resolution')	
-		column.prop(context.scene, 'bt_color', text='Color')
+		column.prop(context.scene, 'bt_resolution', text='Default Resolution')
+		column.separator()
+		column.prop(context.scene, 'bt_color', text='Default Color')
 
 class BT_BuildCurvePanel(Panel):
 	bl_label = "Build Curve"
@@ -4769,36 +4759,22 @@ class BT_BuildCurvePanel(Panel):
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25			
-		row.operator(BT_DrawBezierLine.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_LINE' else False), icon_value=preview_collection['bezier_line_icon'].icon_id)		
-		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False), icon_value=preview_collection['polybezier_min_icon'].icon_id).to_bezier=1							 		    
-		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False), icon_value=preview_collection['polybezier_max_icon'].icon_id).to_bezier=2	
-		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_CURVE' else False), icon_value=preview_collection['bezier_polyline_icon'].icon_id).spline_type='BEZIER'
+		row.operator(BT_DrawBezierLine.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_LINE' else False), icon_value=pcoll['bezier_line_icon'].icon_id)		
+		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False), icon_value=pcoll['polybezier_min_icon'].icon_id).to_bezier=1							 		    
+		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False), icon_value=pcoll['polybezier_max_icon'].icon_id).to_bezier=2	
+		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_CURVE' else False), icon_value=pcoll['bezier_polyline_icon'].icon_id).spline_type='BEZIER'
 
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
-		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYLINE' else False), icon_value=preview_collection['polyline_icon'].icon_id).spline_type='POLY'	
-		row.operator(BT_DrawPolylineCircle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYCIRCLE' else False), icon_value=preview_collection['polyline_circle_icon'].icon_id)
-		row.operator(BT_DrawPolylineRectangle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYRECTANGLE' else False), icon_value=preview_collection['polyline_rectangle_icon'].icon_id)
-		row.operator('wm.call_menu', text='', icon_value=preview_collection['settings_icon'].icon_id).name = BT_Settings.bl_idname
-
-preview_collection.load('add_icon', dir + "/add.png", "IMAGE")
-preview_collection.load('remove_icon', dir + "/remove.png", "IMAGE")
-preview_collection.load('move_icon', dir + "/move.png", "IMAGE")
-preview_collection.load('smooth_icon', dir + "/smooth.png", "IMAGE")
-preview_collection.load('merge_icon', dir + "/merge.png", "IMAGE")
-preview_collection.load('flatten_icon', dir + "/flatten.png", "IMAGE")
-preview_collection.load('split_icon', dir + "/split.png", "IMAGE")
-preview_collection.load('join_icon', dir + "/join.png", "IMAGE")
-preview_collection.load('offset_icon', dir + "/offset.png", "IMAGE")
-preview_collection.load('snap_icon', dir + "/snap.png", "IMAGE")
-preview_collection.load('set_handle_type_icon', dir + "/set_handle_type.png", "IMAGE")
-preview_collection.load('reverse_icon', dir + "/reverse.png", "IMAGE")
-preview_collection.load('convert_icon', dir + "/convert.png", "IMAGE")
-preview_collection.load('transfer_icon', dir + "/transfer.png", "IMAGE")
-preview_collection.load('interpolate_icon', dir + "/interpolate.png", "IMAGE")
-preview_collection.load('get_length_icon', dir + "/get_length.png", "IMAGE")
-preview_collection.load('set_length_icon', dir + "/set_length.png", "IMAGE")
+		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYLINE' else False), icon_value=pcoll['polyline_icon'].icon_id).spline_type='POLY'	
+		row.operator(BT_DrawPolylineCircle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYCIRCLE' else False), icon_value=pcoll['polyline_circle_icon'].icon_id)
+		row.operator(BT_DrawPolylineRectangle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYRECTANGLE' else False), icon_value=pcoll['polyline_rectangle_icon'].icon_id)
+		
+		column = layout.column(align=True)
+		row = column.split(align=True)		
+		row.scale_y = 1.25		
+		row.operator('wm.call_menu', text='', icon_value=pcoll['settings_icon'].icon_id).name = BT_Settings.bl_idname
 
 class BT_EditBezierPanel(Panel):
 	bl_label = "Edit Bézier"
@@ -4816,43 +4792,43 @@ class BT_EditBezierPanel(Panel):
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
-		row.operator(BT_Add.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_ADD_POINT' else False), icon_value=preview_collection['add_icon'].icon_id)
-		row.operator(BT_Remove.bl_idname, text = "", icon_value=preview_collection['remove_icon'].icon_id)
-		row.operator(BT_Move.bl_idname, text = "", icon_value=preview_collection['move_icon'].icon_id)
-		row.operator(BT_Merge.bl_idname, text = "", icon_value=preview_collection['merge_icon'].icon_id)
+		row.operator(BT_Add.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_ADD_POINT' else False), icon_value=pcoll['add_icon'].icon_id)
+		row.operator(BT_Remove.bl_idname, text = "", icon_value=pcoll['remove_icon'].icon_id)
+		row.operator(BT_Move.bl_idname, text = "", icon_value=pcoll['move_icon'].icon_id)
+		row.operator(BT_Merge.bl_idname, text = "", icon_value=pcoll['merge_icon'].icon_id)
 
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25	
-		row.operator(BT_Smooth.bl_idname, text = "", icon_value=preview_collection['smooth_icon'].icon_id)
-		row.operator(Flatten.bl_idname, text = "", icon_value=preview_collection['flatten_icon'].icon_id)
-		row.operator(BT_Split.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_SPLIT' else False), icon_value=preview_collection['split_icon'].icon_id)		
+		row.operator(BT_Smooth.bl_idname, text = "", icon_value=pcoll['smooth_icon'].icon_id)
+		row.operator(BT_Flatten.bl_idname, text = "", icon_value=pcoll['flatten_icon'].icon_id)
+		row.operator(BT_Split.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_SPLIT' else False), icon_value=pcoll['split_icon'].icon_id)		
 			
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
-		row.operator(BT_Join.bl_idname, text = "", icon_value=preview_collection['join_icon'].icon_id)		
-		row.operator(BT_Offset.bl_idname, text = "", icon_value=preview_collection['offset_icon'].icon_id)
-		row.operator(BT_Snap.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_SNAP' else False), icon_value=preview_collection['snap_icon'].icon_id)
+		row.operator(BT_Join.bl_idname, text = "", icon_value=pcoll['join_icon'].icon_id)		
+		row.operator(BT_Offset.bl_idname, text = "", icon_value=pcoll['offset_icon'].icon_id)
+		row.operator(BT_Snap.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_SNAP' else False), icon_value=pcoll['snap_icon'].icon_id)
 		
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25	
-		row.operator(BT_SetBezierHandleType.bl_idname, text = "", icon_value=preview_collection['set_handle_type_icon'].icon_id)	
-		row.operator(BT_Reverse.bl_idname, text = "", icon_value=preview_collection['reverse_icon'].icon_id)
-		row.operator(BT_ConvertCurve.bl_idname, text = "", icon_value=preview_collection['convert_icon'].icon_id)
+		row.operator(BT_SetBezierHandleType.bl_idname, text = "", icon_value=pcoll['set_handle_type_icon'].icon_id)	
+		row.operator(BT_Reverse.bl_idname, text = "", icon_value=pcoll['reverse_icon'].icon_id)
+		row.operator(BT_ConvertCurve.bl_idname, text = "", icon_value=pcoll['convert_icon'].icon_id)
 
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
-		row.operator(BT_TransferCurveData.bl_idname, text = "", icon_value=preview_collection['transfer_icon'].icon_id)
-		row.operator(BT_BezierInterpolate.bl_idname, text = "", icon_value=preview_collection['interpolate_icon'].icon_id)		
-		row.operator(BT_CalcCurveLength.bl_idname, text = "", icon_value=preview_collection['get_length_icon'].icon_id)
-		row.operator(BT_SetCurveLength.bl_idname, text = "", icon_value=preview_collection['set_length_icon'].icon_id)
+		row.operator(BT_TransferCurveData.bl_idname, text = "", icon_value=pcoll['transfer_icon'].icon_id)
+		row.operator(BT_BezierInterpolate.bl_idname, text = "", icon_value=pcoll['interpolate_icon'].icon_id)
 
-preview_collection.load('blend2x0_icon', dir + "/blend2x0.png", "IMAGE")
-preview_collection.load('blend2x1_icon', dir + "/blend2x1.png", "IMAGE")
-preview_collection.load('blend2x2_icon', dir + "/blend2x2.png", "IMAGE")
+		column = layout.column(align=True)
+		row = column.split(align=True)
+		row.scale_y = 1.25				
+		row.operator(BT_CalcCurveLength.bl_idname, text = "", icon_value=pcoll['get_length_icon'].icon_id)
+		row.operator(BT_SetCurveLength.bl_idname, text = "", icon_value=pcoll['set_length_icon'].icon_id)		
 
 class BT_BlendPanel(Panel):
 	bl_label = "Blend Bézier"
@@ -4868,12 +4844,9 @@ class BT_BlendPanel(Panel):
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
-		row.operator(BT_Blend.bl_idname, text = "", icon_value=preview_collection['blend2x0_icon'].icon_id)
-		row.operator(BT_Blend1Profile2Rails.bl_idname, text = "", icon_value=preview_collection['blend2x1_icon'].icon_id)
-		row.operator(BT_Blend2Profiles2Rails.bl_idname, text = "", icon_value=preview_collection['blend2x2_icon'].icon_id)
-
-preview_collection.load('loft_icon', dir + "/loft.png", "IMAGE")
-preview_collection.load('patch_icon', dir + "/patch.png", "IMAGE")
+		row.operator(BT_Blend.bl_idname, text = "", icon_value=pcoll['blend2x0_icon'].icon_id)
+		row.operator(BT_Blend1Profile2Rails.bl_idname, text = "", icon_value=pcoll['blend2x1_icon'].icon_id)
+		row.operator(BT_Blend2Profiles2Rails.bl_idname, text = "", icon_value=pcoll['blend2x2_icon'].icon_id)
 
 class BT_BuildMeshPanel(Panel):
 	bl_label = "Build Mesh"
@@ -4889,13 +4862,54 @@ class BT_BuildMeshPanel(Panel):
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
-		row.operator(BT_Loft.bl_idname, text = "", icon_value=preview_collection['loft_icon'].icon_id)		
-		row.operator(BT_Patch.bl_idname, text = "", icon_value=preview_collection['patch_icon'].icon_id)
+		row.operator(BT_Loft.bl_idname, text = "", icon_value=pcoll['loft_icon'].icon_id)		
+		row.operator(BT_Patch.bl_idname, text = "", icon_value=pcoll['patch_icon'].icon_id)
 
+class BT_ActiveCurvePanel(Panel):
+	bl_label = "Active Curve"
+	bl_idname = "OBJECT_PT_BT_ACTIVE_CURVE_PANEL"
+	bl_space_type = 'VIEW_3D'
+	bl_region_type = 'UI'
+	bl_category = 'Camso Curve Toolkit'
+	bl_options =  {'DEFAULT_CLOSED'}
+	bl_order = 2
+	def draw(self, context):
+		layout = self.layout		
+		column = layout.column(align=True)		
+		if context.object is not None and context.object.type == 'CURVE':
+			curve = context.object
+			spline = curve.data.splines[0]
+			column.prop(curve, 'name', text='')	
+			column.separator()
+			column.label(text=('Type: ' + curve.data.splines[0].type.title()))
+			column.separator()
+
+			if curve.data.splines[0].type in {'BEZIER', 'NURBS'}:
+				row = column.row(align=True)
+				row.label(text='Resolution:')
+				row.prop(spline, 'resolution_u', text='')				
+				column.separator()
+
+			row = column.row(align=True)
+			row = column.row(align=True)			
+			row.label(text='Bevel:')
+
+			row.prop(curve.data, 'bevel_depth', text='')
+			row.prop(curve.data, 'bevel_resolution', text='')			
+			column.separator()
+			
+			row = column.row(align=True)
+			row.label(text='Extrude:')
+			row.prop(curve.data, 'extrude', text='')
+			column.separator()				
+			row = column.row(align=True)
+			row.label(text='Color:')
+			row.prop(curve, 'color', text='')
 ##################################################################################################
 
 classes = (
 	BT_BuildCurvePanel,
+	BT_ActiveCurvePanel,
 	BT_EditBezierPanel,
 	BT_BlendPanel,
 	BT_BuildMeshPanel,
@@ -4910,7 +4924,7 @@ classes = (
 	BT_DrawPolylineRectangle,
 	BT_Add,
 	BT_Move,
-	Flatten,
+	BT_Flatten,
 	BT_Offset,
 	BT_Remove,
 	BT_Split,
@@ -4930,9 +4944,43 @@ classes = (
 )
 
 def register():
+	global pcoll
+	pcoll = bpy.utils.previews.new()
+	dir = os.path.join(os.path.dirname(__file__), "icons")
+	pcoll.load('bezier_line_icon', dir + "/bezier_line.png", "IMAGE")
+	pcoll.load('bezier_polyline_icon', dir + "/bezier_polyline.png", "IMAGE")
+	pcoll.load('polybezier_min_icon', dir + "/polybezier_min.png", "IMAGE")
+	pcoll.load('polybezier_max_icon', dir + "/polybezier_max.png", "IMAGE")
+	pcoll.load('polyline_icon', dir + "/polyline.png", "IMAGE")
+	pcoll.load('polyline_circle_icon', dir + "/polyline_circle.png", "IMAGE")
+	pcoll.load('polyline_rectangle_icon', dir + "/polyline_rectangle.png", "IMAGE")
+	pcoll.load('settings_icon', dir + "/settings.png", "IMAGE")
+	pcoll.load('add_icon', dir + "/add.png", "IMAGE")
+	pcoll.load('remove_icon', dir + "/remove.png", "IMAGE")
+	pcoll.load('move_icon', dir + "/move.png", "IMAGE")
+	pcoll.load('smooth_icon', dir + "/smooth.png", "IMAGE")
+	pcoll.load('merge_icon', dir + "/merge.png", "IMAGE")
+	pcoll.load('flatten_icon', dir + "/flatten.png", "IMAGE")
+	pcoll.load('split_icon', dir + "/split.png", "IMAGE")
+	pcoll.load('join_icon', dir + "/join.png", "IMAGE")
+	pcoll.load('offset_icon', dir + "/offset.png", "IMAGE")
+	pcoll.load('snap_icon', dir + "/snap.png", "IMAGE")
+	pcoll.load('set_handle_type_icon', dir + "/set_handle_type.png", "IMAGE")
+	pcoll.load('reverse_icon', dir + "/reverse.png", "IMAGE")
+	pcoll.load('convert_icon', dir + "/convert.png", "IMAGE")
+	pcoll.load('transfer_icon', dir + "/transfer.png", "IMAGE")
+	pcoll.load('interpolate_icon', dir + "/interpolate.png", "IMAGE")
+	pcoll.load('get_length_icon', dir + "/get_length.png", "IMAGE")
+	pcoll.load('set_length_icon', dir + "/set_length.png", "IMAGE")
+	pcoll.load('blend2x0_icon', dir + "/blend2x0.png", "IMAGE")
+	pcoll.load('blend2x1_icon', dir + "/blend2x1.png", "IMAGE")
+	pcoll.load('blend2x2_icon', dir + "/blend2x2.png", "IMAGE")
+	pcoll.load('loft_icon', dir + "/loft.png", "IMAGE")
+	pcoll.load('patch_icon', dir + "/patch.png", "IMAGE")
+
 	for cls in classes:
 		bpy.utils.register_class(cls)
-
+	
 	bpy.types.Scene.bt_resolution = bpy.props.IntProperty(default=12, min=3, name='', description='Curve\'s smoothness. It is a value stored in the scene and assigned to every new curve. For changing resolution of an active curve go to [Active Spline] settings')
 	bpy.types.Scene.bt_color = bpy.props.FloatVectorProperty(name='Color', subtype='COLOR', 
 		size=4, min=0, max=1.0, default=(0.0, 1.0, 0.5, 1.0),
@@ -4952,10 +5000,12 @@ def register():
 		('BT_SNAP','',''),		
 		])
 
+
+
 def unregister():
 	for cls in reversed(classes):
-		bpy.utils.unregister_class(cls)
-
-	bpy.utils.previews.remove(preview_collection)
+		bpy.utils.unregister_class(cls)	
 
 	del bpy.types.Scene.bt_resolution
+
+	bpy.utils.previews.remove(pcoll)
