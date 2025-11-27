@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 7),
+	"version": (1, 0, 9),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -122,7 +122,8 @@ class BT_BezierCurve:
 
 	def build(self, context, resolution, name):
 		bezier = add_bezier(self, context, resolution, name)
-		points = bezier.data.splines[0].bezier_points
+		spline = bezier.data.splines[0]
+		points = spline.bezier_points
 		bezier.data.splines[0].bezier_points.add(len(self.points)-1)
 
 		for index, point in enumerate(points):
@@ -130,8 +131,13 @@ class BT_BezierCurve:
 			point.co = self.points[index][1]
 			point.handle_right = self.points[index][2]
 		
-		bezier.data.splines[0].resolution_u = resolution
-		bezier.color = context.scene.bt_color
+		spline.resolution_u = resolution
+		bezier.color = context.scene.bt_color		
+
+		bezier.data.bevel_depth = context.scene.bt_pipe_radius
+		bezier.data.bevel_resolution = context.scene.bt_pipe_resolution
+		bezier.data.extrude = context.scene.bt_band_width	
+
 		# set_handle_type(self, bezier, 'ALIGNED')
 		# bezier.matrix_world = self.matrix_world  
 		return bezier
@@ -459,14 +465,21 @@ class BT_DrawBezierCurve(BT_Draw):
 		return {"RUNNING_MODAL"}
 
 	def add_curve(self, context, spline_type, name):
-		curve = bpy.data.curves.new(name=name, type='CURVE')
-		curve.dimensions = '3D'
-		curve.splines.new(self.spline_type)
-		curve.splines[0].resolution_u = context.scene.bt_resolution
-		obj = bpy.data.objects.new(name, curve)
-		context.scene.collection.objects.link(obj)
-		context.view_layer.objects.active = obj     
-		return obj
+		curve_data = bpy.data.curves.new(name=name, type='CURVE')
+		curve_data.dimensions = '3D'
+		spline = curve_data.splines.new(self.spline_type)
+		
+		spline.resolution_u = context.scene.bt_resolution
+		
+		curve = bpy.data.objects.new(name, curve_data)
+		context.scene.collection.objects.link(curve)
+		context.view_layer.objects.active = curve
+
+		curve.data.bevel_depth = context.scene.bt_pipe_radius
+		curve.data.bevel_resolution = context.scene.bt_pipe_resolution
+		curve.data.extrude = context.scene.bt_band_width
+
+		return curve
 
 	def add_point(self, context, event):
 		cursor = get_cursor(self, event)	   
@@ -2123,6 +2136,7 @@ class BT_Move(Operator):
 			self.report({'ERROR'}, "Can only slide Bézier points")
 			return{'CANCELLED'}
 
+		update_edit_object_edit(context)
 		matrix = curve.matrix_world
 		bezier_points = curve.data.splines[0].bezier_points
 		selected_points = [point for point in bezier_points if point.select_control_point]
@@ -2143,8 +2157,7 @@ class BT_Move(Operator):
 			if p == point:
 				index = i
 				break		
-		
-		t = self.t		
+	
 		if point == bezier_points[0] or point == bezier_points[-1]:
 			new_point = None			
 			if index == 0:
@@ -2156,7 +2169,7 @@ class BT_Move(Operator):
 					point.handle_right,
 					p3.handle_left,
 					p3.co,
-				 ), t)
+				 ), self.t)
 
 				point.handle_left = new_point[1][0]			
 				point.co = new_point[1][1]
@@ -2171,7 +2184,7 @@ class BT_Move(Operator):
 					p0.handle_right,
 					point.handle_left,
 					point.co,
-				 ), t)
+				 ), self.t)
 
 				point.handle_left = new_point[1][0]			
 				point.co = new_point[1][1]
@@ -2197,7 +2210,7 @@ class BT_Move(Operator):
 				handle_right,
 				handle_left,
 				p3.co,
-			 ), t)
+			 ), self.t)
 
 			point.handle_left = update[1][0]			
 			point.co = update[1][1]
@@ -3052,7 +3065,7 @@ class BT_Blend2Profiles2Rails(Operator):
 
 def add_polyline(self, context, coords, name):
 	sel = context.selected_objects
-	# bpy.ops.object.select_all(action='DESELECT')
+	bpy.ops.object.select_all(action='DESELECT')
 
 	curve = bpy.data.curves.new(name="Polyline", type='CURVE')
 	curve.dimensions = '3D'
@@ -3071,6 +3084,10 @@ def add_polyline(self, context, coords, name):
 	polyline.select_set(True)
 	context.view_layer.objects.active = polyline
 	bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+
+	polyline.data.bevel_depth = context.scene.bt_pipe_radius
+	polyline.data.bevel_resolution = context.scene.bt_pipe_resolution
+	polyline.data.extrude = context.scene.bt_band_width
 
 	for obj in sel:
 		obj.select_set(True)	
@@ -4729,18 +4746,41 @@ def update_object_edit_object(context):
 # UI ############################################################################################
 pcoll = None
 
-class BT_Settings(Menu):
-	bl_label = 'Settings'
-	bl_idname = 'OBJECT_MT_bt_settings'
+class BT_Settings(Panel):
+	bl_label = 'Settings'  
+	bl_idname = "SCENE_PT_bt_settings"
+	bl_space_type = 'PROPERTIES'
+	bl_region_type = 'WINDOW'
+	bl_context = "scene"
 	bl_description = 'Properties assigned to a new curve'
 	
 	def draw(self, context):
 		layout = self.layout		
-		column = layout.column(align=True)
-		column.scale_x = 0.5
-		column.prop(context.scene, 'bt_resolution', text='Default Resolution')
+		column = layout.column()	
+		row=column.row(align=True)
+		row.scale_x = 0.7
+		row.label(text='Resolution:')
+		row.prop(context.scene, 'bt_resolution', text='')
 		column.separator()
-		column.prop(context.scene, 'bt_color', text='Default Color')
+	
+		row=column.row(align=True)
+		row.scale_x = 0.7
+		row.label(text='Pipe:')
+		row.prop(context.scene, 'bt_pipe_radius', text='')
+		row.prop(context.scene, 'bt_pipe_resolution', text='')
+		column.separator()
+
+		row=column.row(align=True)
+		row.scale_x = 0.7
+		row.label(text='Band:')
+		row.prop(context.scene, 'bt_band_width', text='')
+		column.separator()
+
+		row=column.row(align=True)
+		row.scale_x = 0.7
+		row.label(text='Color:')
+		row.prop(context.scene, 'bt_color', text='')
+		column.separator()
 
 class BT_BuildCurvePanel(Panel):
 	bl_label = "Build Curve"
@@ -4772,9 +4812,10 @@ class BT_BuildCurvePanel(Panel):
 		row.operator(BT_DrawPolylineRectangle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYRECTANGLE' else False), icon_value=pcoll['polyline_rectangle_icon'].icon_id)
 		
 		column = layout.column(align=True)
-		row = column.split(align=True)		
+		row = column.split(align=True)
 		row.scale_y = 1.25		
-		row.operator('wm.call_menu', text='', icon_value=pcoll['settings_icon'].icon_id).name = BT_Settings.bl_idname
+		settings = row.operator('wm.call_panel', text='', icon_value=pcoll['settings_icon'].icon_id)
+		settings.name = BT_Settings.bl_idname		
 
 class BT_EditBezierPanel(Panel):
 	bl_label = "Edit Bézier"
@@ -4865,51 +4906,61 @@ class BT_BuildMeshPanel(Panel):
 		row.operator(BT_Loft.bl_idname, text = "", icon_value=pcoll['loft_icon'].icon_id)		
 		row.operator(BT_Patch.bl_idname, text = "", icon_value=pcoll['patch_icon'].icon_id)
 
-class BT_ActiveCurvePanel(Panel):
-	bl_label = "Active Curve"
-	bl_idname = "OBJECT_PT_BT_ACTIVE_CURVE_PANEL"
+class BT_ActiveObjectPanel(Panel):
+	bl_label = "Active Object"
+	bl_idname = "OBJECT_PT_BT_ACTIVE_OBJECT_PANEL"
 	bl_space_type = 'VIEW_3D'
 	bl_region_type = 'UI'
 	bl_category = 'Camso Curve Toolkit'
 	bl_options =  {'DEFAULT_CLOSED'}
-	bl_order = 2
+	bl_order = 4
+
 	def draw(self, context):
 		layout = self.layout		
 		column = layout.column(align=True)		
-		if context.object is not None and context.object.type == 'CURVE':
-			curve = context.object
-			spline = curve.data.splines[0]
-			column.prop(curve, 'name', text='')	
-			column.separator()
-			column.label(text=('Type: ' + curve.data.splines[0].type.title()))
+		obj = context.object
+		
+		if obj is not None:
+			column.label(text=(obj.data.splines[0].type if obj.type == 'CURVE' else obj.type))			
+			column.separator()			
+			column.prop(obj, 'name', text='')
 			column.separator()
 
-			if curve.data.splines[0].type in {'BEZIER', 'NURBS'}:
+			if obj.type == 'CURVE':
+				curve = obj
+				spline = obj.data.splines[0]
+				if spline.type in {'BEZIER', 'NURBS'}:
+					row = column.row(align=True)
+					row.label(text='Resolution:')
+					row.prop(spline, 'resolution_u', text='')				
+					column.separator()
+
 				row = column.row(align=True)
-				row.label(text='Resolution:')
-				row.prop(spline, 'resolution_u', text='')				
+				row = column.row(align=True)			
+				row.label(text='Pipe:')
+				row.prop(curve.data, 'bevel_depth', text='')
+				row.prop(curve.data, 'bevel_resolution', text='')			
+				column.separator()			
+				row = column.row(align=True)
+				row.label(text='Band:')
+				row.prop(curve.data, 'extrude', text='')
+				column.separator()				
+
+				row = column.row(align=True)
+				row.label(text='Cyclic:')
+				row.prop(spline, 'use_cyclic_u', text='')
 				column.separator()
-
-			row = column.row(align=True)
-			row = column.row(align=True)			
-			row.label(text='Bevel:')
-
-			row.prop(curve.data, 'bevel_depth', text='')
-			row.prop(curve.data, 'bevel_resolution', text='')			
-			column.separator()
 			
 			row = column.row(align=True)
-			row.label(text='Extrude:')
-			row.prop(curve.data, 'extrude', text='')
-			column.separator()				
-			row = column.row(align=True)
 			row.label(text='Color:')
-			row.prop(curve, 'color', text='')
+			row.prop(obj, 'color', text='')
+			column.separator()
+
 ##################################################################################################
 
 classes = (
 	BT_BuildCurvePanel,
-	BT_ActiveCurvePanel,
+	BT_ActiveObjectPanel,
 	BT_EditBezierPanel,
 	BT_BlendPanel,
 	BT_BuildMeshPanel,
@@ -4986,6 +5037,10 @@ def register():
 		size=4, min=0, max=1.0, default=(0.0, 1.0, 0.5, 1.0),
 		description='Color assigned to every new curve. Only takes effect when [Viewport Shading-> Wireframe Color-> Object]')
 
+	bpy.types.Scene.bt_pipe_radius = bpy.props.FloatProperty(name='Pipe Radius', description='Pipe Radius', min=0, step=1)
+	bpy.types.Scene.bt_pipe_resolution = bpy.props.IntProperty(name='Pipe Resolution', description='Pipe Section Resolution', min=0)
+	bpy.types.Scene.bt_band_width = bpy.props.FloatProperty(name='Band Width', description='Band Width', min=0, step=1)
+
 	bpy.types.WindowManager.bt_modal_on = bpy.props.EnumProperty(items=[
 		('NONE','',''),
 		('BT_LINE','',''),
@@ -4999,8 +5054,6 @@ def register():
 		('BT_ADD_POINT','',''),
 		('BT_SNAP','',''),		
 		])
-
-
 
 def unregister():
 	for cls in reversed(classes):
