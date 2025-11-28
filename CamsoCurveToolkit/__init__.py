@@ -1,6 +1,6 @@
 # 	MIT License
 #---------------------------------------------------------------------------------------------
-# 	Copyright (c) 2025 Automation Staff
+# 	Copyright (c) 2025 Camshaft Software LLC
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a copy
 #   of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 0, 9),
+	"version": (1, 1, 0),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -378,6 +378,10 @@ class BT_DrawBezierLine(BT_Draw):
 				update_viewport(self, context)
 				self.points.clear()
 				context.object.select_set(True)
+				context.workspace.status_text_set(None)
+				context.window_manager.bt_modal_on = 'NONE'
+				return {'FINISHED'}
+
 			return {'RUNNING_MODAL'}
 
 		# update on mouse move
@@ -399,7 +403,7 @@ class BT_DrawBezierLine(BT_Draw):
 			update_viewport(self, context)
 			self.points.clear()
 			context.workspace.status_text_set(None)
-			context.window_manager.bt_modal_on = 'NONE'		
+			context.window_manager.bt_modal_on = 'NONE'
 			return {'FINISHED'}		
 
 		return {'RUNNING_MODAL'}
@@ -565,12 +569,15 @@ class BT_DrawBezierCurve(BT_Draw):
 		elif event.type in {'RET', 'ESC'} and event.value == 'PRESS':         
 			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'	
-			context.window.cursor_modal_set('DEFAULT')					
+			context.window.cursor_modal_set('DEFAULT')
+			update_object_edit_object(context)		
 			if not len(self.get_points(self.curve)) > 1:
 				bpy.data.curves.remove(self.curve.data)
 				self.curve = None
 				return {'FINISHED'}
 
+			context.view_layer.objects.active = self.curve
+			self.curve.select_set(True)
 
 			# # update_object_edit(context)			
 			# if self.curve:
@@ -695,11 +702,11 @@ class BT_DrawPolyBezier(BT_Draw):
 				self.remove_curve_2d_handler()
 				update_viewport(self, context)
 				add_polyline(self, context, [point[1] for point in self.points], 'Polyline')
-				bpy.ops.curve.bt_convert_curve(keep_all_points=False, resolution=context.scene.bt_resolution)
+				bpy.ops.curve.bt_convert_curve(keep_all_points=False, resolution=context.scene.bt_resolution, type='Bezier')
 				self.points.clear()
 				context.workspace.status_text_set(None)
 				context.window_manager.bt_modal_on = 'NONE'
-				# return {'FINISHED'}
+				return {'FINISHED'}
 
 			return {'RUNNING_MODAL'}
 
@@ -720,9 +727,9 @@ class BT_DrawPolyBezier(BT_Draw):
 					case 0:
 						pass
 					case 1:
-						bpy.ops.curve.bt_convert_curve(keep_all_points=False, resolution=context.scene.bt_resolution)
+						bpy.ops.curve.bt_convert_curve(keep_all_points=False, resolution=context.scene.bt_resolution, type='Bezier')
 					case 2:
-						bpy.ops.curve.bt_convert_curve(keep_all_points=True, resolution=context.scene.bt_resolution, handle_type='ALIGNED')
+						bpy.ops.curve.bt_convert_curve(keep_all_points=True, resolution=context.scene.bt_resolution, type='Bezier', handle_type='ALIGNED')
 			self.points.clear()
 			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'
@@ -860,6 +867,10 @@ class BT_DrawPolylineCircle(BT_Draw):
 				self.points.clear()
 				self.radius.clear()
 				update_viewport(self, context)
+				context.workspace.status_text_set(None)
+				context.window_manager.bt_modal_on = 'NONE'
+				return {'FINISHED'}
+
 			return {'RUNNING_MODAL'}
 
 		elif event.type == 'MOUSEMOVE' and len(self.radius) != 2:
@@ -1018,7 +1029,10 @@ class BT_DrawPolylineRectangle(BT_Draw):
 				self.snap_points = self.snap_points.union(new_snap_points)
 				self.points.clear()
 				self.diagonal.clear()
-			return {'RUNNING_MODAL'}    
+				context.workspace.status_text_set(None)
+				context.window_manager.bt_modal_on = 'NONE'
+				return {'FINISHED'}
+			return {'RUNNING_MODAL'}				  
 
 		elif event.type == 'MOUSEMOVE' and len(self.diagonal) != 2:
 			cursor = Vector((event.mouse_region_x, event.mouse_region_y))           
@@ -3328,15 +3342,16 @@ class BT_ConvertCurve(Operator):
 	bl_label = 'Convert'
 	bl_description = 'Convert to Bézier or Polyline'
 	bl_options = {'REGISTER', 'UNDO'}
-	type: bpy.props.EnumProperty(items=[('Bezier', 'Bézier', ''), ('Polyline', 'Polyline', '')], name='Type: ')
-	remove_src: bpy.props.BoolProperty(name='Remove source', default = True)
+	type: bpy.props.EnumProperty(items=[('Polyline', 'Polyline', ''), ('Bezier', 'Bézier', '')], name='Type: ')
+	remove_src: bpy.props.BoolProperty(name='Remove source', default=True)
 	resolution: bpy.props.IntProperty(name='Resolution', default = 12, min=2, soft_min=2, max=64, soft_max=64)
 	keep_all_points: bpy.props.BoolProperty(name='Keep All Points', default=True, description='Set all points to Bézier explicitly with specified handles')
 	handle_type: bpy.props.EnumProperty(items=[('AUTO', 'AUTO', ''), ('FREE', 'FREE', ''), ('VECTOR', 'VECTOR', ''), ('ALIGNED', 'ALIGNED', '')], name='Handle: ')
+	to_mesh: bpy.props.BoolVectorProperty(name='To Mesh', size=2, description='Converts result to a mesh. Checkbox 1 - Edges. Checkbox 2 - Polygons')
 	
 	@classmethod
 	def poll(cls, context):
-		return context.object is not None and context.object.type=='CURVE'
+		return context.object is not None and context.mode == 'OBJECT'
 	
 	# find the handle for a square bezier 
 	def get_square_bezier_handle(self, point, t, p0, p2):
@@ -3501,17 +3516,15 @@ class BT_ConvertCurve(Operator):
 				
 			column.separator(factor=1.0)
 
-		row = layout.row(align=True)
+		row = column.row(align=True)
 		row.label(text='Resolution:')           
 		row.prop(self, 'resolution', text='')
-
 		column.separator(factor=1.0)
-		column = layout.column(align=True)
-
-		if self.type == 'Polyline':
-			row = layout.row(align=True)		
-			
-		column = layout.column(align=True)
+		
+		row = column.row()
+		row.prop(self, 'to_mesh', text='To Mesh', toggle=True)
+		column.separator(factor=1.0)
+		
 		column.prop(self, 'remove_src')
 
 	def add_curve_copy(self, context, curve):
@@ -3522,10 +3535,10 @@ class BT_ConvertCurve(Operator):
 		return obj
 
 	def execute(self, context):
-		sel = context.selected_objects
+		sel = [obj for obj in context.selected_objects if obj.type == 'CURVE']
 
 		bpy.ops.object.mode_set(mode='OBJECT')
-		# bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)   
+		bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)   
   
 		converted = []
 
@@ -3577,15 +3590,71 @@ class BT_ConvertCurve(Operator):
 			parent = curve.parent
 			if parent is not None:
 				new_curve.parent = parent
+
+			if self.to_mesh[0]:
+				data = bpy.data
+				scene = context.scene
+				mesh = data.meshes.new(new_curve.name + ' mesh')
+				obj = bpy.data.objects.new(new_curve.name, mesh)
+				scene.collection.objects.link(obj)
+				
+				bm = bmesh.new()
+				bm.from_mesh(mesh)
+				
+				edge_buffer = []
+				points = space_interpolate_bezier(new_curve, 100, self.resolution) if is_bezier(new_curve) else [point.co.xyz for point in new_curve.data.splines[0].points]
+				
+				for point in points:
+					bm.verts.new(point)
+
+				bm.verts.index_update()
+				bm.verts.ensure_lookup_table()
+
+				for index, vert in enumerate(bm.verts):
+					if index + 1 != len(bm.verts):
+						edge_buffer.append([vert, bm.verts[index+1]])
+
+				for i in range(len(points)-1):
+					bm.edges.new(edge_buffer[i])
+
+				bm.edges.index_update()
+				bm.edges.ensure_lookup_table()
+
+				weld_map = bmesh.ops.find_doubles(bm, verts=bm.verts, dist=1e-5)
+				bmesh.ops.weld_verts(bm, targetmap=weld_map['targetmap'])
+
+				if self.to_mesh[1]:
+					face = bm.faces.new(
+						[vert for vert in bm.verts]
+						)
+					bm.faces.index_update()
+					bm.faces.ensure_lookup_table()
+					face.normal_update()
+
+					if face.normal.dot(get_view_direction(self, context)) < 0:
+						face.normal_flip()
+						face.normal_update()
+
+				bm.to_mesh(mesh)
+				bm.free()
+
+				obj.select_set(True)
+				context.view_layer.objects.active = obj
+				bpy.data.objects.remove(new_curve)
 			
 			if self.remove_src:
-				bpy.data.objects.remove(curve)
+				for curve in sel[:]:
+					bpy.data.objects.remove(curve)
 
-		bpy.ops.object.select_all(action='DESELECT')
+
+		# bpy.ops.object.select_all(action='DESELECT')
 
 		return {'FINISHED'}
 
 # MESH OPS ######################################################################
+def recalculate_face_normal(self, context, face):	
+	if face.normal.dot(get_view_direction(self, context).normalized()) < 0:
+		face.flip()
 
 def get_quad_loop_verts_data(self, curve_1_interp_points_buffer, curve_2_interp_points_buffer):
 	curve_2_interp_points_buffer.reverse()
@@ -3671,7 +3740,7 @@ def loft_bezier(self, context, curves, count, flip_normals, merge_distance, *, p
 	if are_normals_flipped(self, context, bm):
 		for face in bm.faces:           
 			face.normal_flip()
-			# face.normal_update()
+			face.normal_update()
 
 	if flip_normals:
 		for face in bm.faces:           
@@ -3686,6 +3755,8 @@ def loft_bezier(self, context, curves, count, flip_normals, merge_distance, *, p
 	BT_Loft_data.calc_loop_triangles()
 	scene.collection.objects.link(BT_Loft_object)
 	bm.free()
+
+	return BT_Loft_object	
 
 def loft_polyline(self, context, curves, flip_normals):
 	# create bmesh
@@ -3741,6 +3812,8 @@ def loft_polyline(self, context, curves, flip_normals):
 	scene.collection.objects.link(BT_Loft_object)
 	bm.free()
 
+	return BT_Loft_object
+
 class BT_Loft(Operator):
 	bl_idname = 'object.bt_bezier_mesh_loft'
 	bl_label = 'Loft'
@@ -3754,7 +3827,7 @@ class BT_Loft(Operator):
 
 	@classmethod
 	def poll(self, context):
-		return context.active_object is not None and context.object.type == 'CURVE' and len(context.selected_objects) > 1 and context.mode == 'OBJECT'
+		return context.object is not None
 
 	def draw(self, context):
 		layout = self.layout
@@ -3766,8 +3839,8 @@ class BT_Loft(Operator):
 		column.prop(self, 'remove_source')
 
 	def execute(self, context):
-		curves = context.selected_objects
-		first_curve = context.active_object
+		curves = [obj for obj in context.selected_objects if obj.type == 'CURVE']
+		first_curve = context.object
 		resolution = self.resolution
 
 		if is_valid_bezier_selection(self, curves):
@@ -3779,34 +3852,29 @@ class BT_Loft(Operator):
 
 			# sort curves in the selection list by distance starting from the active one        
 			sort_by_distance(self, context.object, curves)          
-			loft_bezier(self, context, curves, resolution+1, self.flip_normals, self.merge_distance, precision=self.precision, name='LoftMesh')   
+			loft_mesh = loft_bezier(self, context, curves, resolution+1, self.flip_normals, self.merge_distance, precision=self.precision, name='LoftMesh') 
+
+			if loft_mesh is not None:
+				loft_mesh.select_set(True)
+				context.view_layer.objects.active = loft_mesh  
 
 		elif is_valid_polyline_selection(self, curves):
-			bpy.ops.object.select_all(action='DESELECT')
-
 			for curve in curves:
-				if curve is not first_curve:                    
+				if curve is not first_curve:
 					dot = (to_world(self, curve.matrix_world, Vector((curve.data.splines[0].points[0].co[:3]))) - to_world(self, curve.matrix_world, Vector((curve.data.splines[0].points[-1].co[:3])))).dot(to_world(self, first_curve.matrix_world, Vector((first_curve.data.splines[0].points[0].co[:3]))) - to_world(self, first_curve.matrix_world, Vector((first_curve.data.splines[0].points[-1].co[:3]))))
 					if dot < 0:
-						context.view_layer.objects.active = curve
-						curve.select_set(True)
-
-						bpy.ops.object.mode_set(mode='EDIT')                
-						bpy.ops.curve.select_all(action='SELECT')           
-						bpy.ops.curve.switch_direction()
-						bpy.ops.curve.select_all(action='DESELECT')
-						bpy.ops.object.mode_set(mode='OBJECT')  
-
-			for curve in curves:
-				curve.select_set(True)
-			context.view_layer.objects.active = first_curve
+						reverse_curve(self, curve)
 
 			sort_by_distance(self, context.object, curves)
 
-			bpy.ops.object.mode_set(mode='OBJECT')
-			bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)		
+			# bpy.ops.object.mode_set(mode='OBJECT')
+			# bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)		
 
-			loft_polyline(self, context, curves, self.flip_normals)
+			loft_mesh = loft_polyline(self, context, curves, self.flip_normals)
+			
+			if loft_mesh is not None:
+				loft_mesh.select_set(True)
+				context.view_layer.objects.active = loft_mesh			
 		
 		if self.remove_source:
 			for curve in curves[:]:
@@ -3830,11 +3898,11 @@ class BT_Patch(Operator):
 	
 	@classmethod
 	def poll(cls, context):
-		return context.active_object is not None and len(context.selected_objects) == 4 and context.mode == 'OBJECT'
+		return context.object is not None
 
 	def draw(self, context):
 		layout = self.layout
-		column = layout.column()	
+		column = layout.column()
 		column.prop(self, 'resolution_u')
 		column.prop(self, 'resolution_v')
 		column.prop(self, 'precision')		
@@ -3844,9 +3912,9 @@ class BT_Patch(Operator):
 		column.prop(self, 'remove_source')
 	
 	def execute(self, context):     
-		sel = context.selected_objects
-		for obj in sel:
-			if obj.type == 'CURVE' and len(obj.data.splines) == 1 and obj.data.splines[0].type == 'BEZIER':
+		sel = [obj for obj in context.selected_objects if obj.type=='CURVE']
+		for curve in sel:
+			if  len(curve.data.splines) == 1 and curve.data.splines[0].type == 'BEZIER':
 				continue
 			else:
 				self.report({'ERROR'}, "Patch requires selection of a loop made by 4 separate bezier curves")
@@ -3859,12 +3927,16 @@ class BT_Patch(Operator):
 			for point in curve.data.splines[0].bezier_points:
 				points_map[curve].append(to_world(self, curve.matrix_world, point.co.copy().freeze()))
 
-		horizon_1 = context.active_object
+		horizon_1 = context.object
 		horizon_2 = None
 		vertical_1 = None
 		vertical_2 = None
 
 		needs_reverse = []
+
+		if horizon_1 not in context.selected_objects:
+			self.report({'ERROR'}, "Context object must be one of the loop curves!")
+			return {'CANCELLED'}
 
 		# find the closest curve to horizon_1 start point   
 		for curve, coords in points_map.items():
@@ -3909,11 +3981,15 @@ class BT_Patch(Operator):
 		blends = blend_2_profiles_2_rails(self, context, self.resolution_v, curves = (horizon_1, horizon_2, vertical_1, vertical_2))
 		curves.extend(blends)
 		curves.append(vertical_2)
-		loft_bezier(self, context, curves, self.resolution_u, self.flip_normals, self.merge_distance, precision=self.precision, name='PatchMesh')
+		patch_mesh = loft_bezier(self, context, curves, self.resolution_u, self.flip_normals, self.merge_distance, precision=self.precision, name='PatchMesh')
 
-		horizon_1.select_set(True)
-		context.view_layer.objects.active = horizon_1
-
+		if patch_mesh is not None:
+			patch_mesh.select_set(True)
+			context.view_layer.objects.active = patch_mesh
+		
+		# horizon_1.select_set(True)
+		# context.view_layer.objects.active = horizon_1
+		
 		if self.remove_source:
 			for curve in (horizon_1, vertical_1, vertical_2, horizon_2):
 				if curve is not None and curve.name in bpy.data.objects:
@@ -4921,9 +4997,9 @@ class BT_ActiveObjectPanel(Panel):
 		obj = context.object
 		
 		if obj is not None:
-			column.label(text=(obj.data.splines[0].type if obj.type == 'CURVE' else obj.type))			
+			column.label(text='Type: ' + (obj.data.splines[0].type if obj.type == 'CURVE' else obj.type))			
 			column.separator()			
-			column.prop(obj, 'name', text='')
+			column.prop(obj, 'name', text='Name')
 			column.separator()
 
 			if obj.type == 'CURVE':
