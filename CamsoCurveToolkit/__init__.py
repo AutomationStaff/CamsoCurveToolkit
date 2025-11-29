@@ -1279,7 +1279,7 @@ class BT_Split(Operator, BT_Cursor):
 	bl_idname = "curve.bt_split"
 	bl_label = "Split"
 	bl_description = "Split and separate a Bézier curve"
-	bl_options = {'REGISTER', 'UNDO'}	
+	bl_options = {'REGISTER', 'UNDO'}
 
 	RADIUS = 25
 	screen_world_map = dict()
@@ -1296,7 +1296,7 @@ class BT_Split(Operator, BT_Cursor):
 			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
 			return {'CANCELLED'}
 
-		if not is_single_view3d(self, context):			
+		if not is_single_view3d(self, context):
 			return {'CANCELLED'}
 
 		curve = context.object
@@ -1340,7 +1340,7 @@ class BT_Split(Operator, BT_Cursor):
 		if not len(dist) > 0:
 			return None	
 
-		return dist.get(min(dist)).freeze()		
+		return dist.get(min(dist)).freeze()
 
 	def get_bezier_split_point(self, context, event):
 		points = self.points		
@@ -3342,17 +3342,55 @@ class BT_ConvertCurve(Operator):
 	bl_label = 'Convert'
 	bl_description = 'Convert to Bézier or Polyline'
 	bl_options = {'REGISTER', 'UNDO'}
-	type: bpy.props.EnumProperty(items=[('Polyline', 'Polyline', ''), ('Bezier', 'Bézier', '')], name='Type: ')
+	type: bpy.props.EnumProperty(items=[('Polyline', 'Polyline', ''), ('Bezier', 'Bézier', '')], name='Type')
 	remove_src: bpy.props.BoolProperty(name='Remove source', default=True)
 	resolution: bpy.props.IntProperty(name='Resolution', default = 12, min=2, soft_min=2, max=64, soft_max=64)
 	keep_all_points: bpy.props.BoolProperty(name='Keep All Points', default=True, description='Set all points to Bézier explicitly with specified handles')
 	handle_type: bpy.props.EnumProperty(items=[('AUTO', 'AUTO', ''), ('FREE', 'FREE', ''), ('VECTOR', 'VECTOR', ''), ('ALIGNED', 'ALIGNED', '')], name='Handle: ')
-	to_mesh: bpy.props.BoolVectorProperty(name='To Mesh', size=2, description='Converts result to a mesh. Checkbox 1 - Edges. Checkbox 2 - Polygons')
+	to_wireframe: bpy.props.BoolProperty(name='Wireframe', description='Converts the result to a mesh wireframe object')
+	to_face: bpy.props.BoolProperty(name='Face', description='Converts the result to a mesh single-face object')
+	exact: bpy.props.BoolProperty(name='Exact', description='No spacing. Keep existing Bézier interpolation')
+	edit_mode: bpy.props.BoolProperty(name='Edit Mode', description='Change to Edit Mode')
+
+	original_type = 'NONE'
 	
 	@classmethod
 	def poll(cls, context):
-		return context.object is not None and context.mode == 'OBJECT'
+		return context.object is not None
 	
+	def draw(self, context):
+		layout = self.layout
+		column = layout.column(align=True)
+		column.prop(self, 'type')
+		column.separator(factor=1.0)
+		if self.type == 'Bezier':
+			column.prop(self, 'keep_all_points')                                            
+			if self.keep_all_points:    
+				column.separator(factor=1.0)
+				column.prop(self, 'handle_type')
+				
+			column.separator(factor=1.0)
+
+		row = column.row(align=True)
+		row.label(text='Resolution:')           
+		row.prop(self, 'resolution', text='')
+		column.separator(factor=1.0)		
+
+		column = layout.column(align=True)
+		row = column.row(align=True)
+		row.label(text='To Mesh: ')		
+		if not self.original_type == 'MESH':
+			if not self.to_face:			
+				row.prop(self, 'to_wireframe', text='Wireframe', toggle=True)
+				column.separator(factor=1.0)
+			if not self.to_wireframe:			
+				row.prop(self, 'to_face', text='Face', toggle=True)
+				column.separator(factor=1.0)
+
+		column.prop(self, 'exact')
+		column.prop(self, 'edit_mode')
+		column.prop(self, 'remove_src')	
+
 	# find the handle for a square bezier 
 	def get_square_bezier_handle(self, point, t, p0, p2):
 		if (2*(1-t)*t) == 0:
@@ -3490,7 +3528,7 @@ class BT_ConvertCurve(Operator):
 	def bezier_to_poly(self, context, curve, matrix, spline):
 		bezier_points = spline.bezier_points
 		interpolated_points = []		
-		poly_points = [point.to_4d() for point in space_interpolate_bezier(curve, 100, self.resolution)]
+		poly_points = [point.to_4d() for point in (mathutils_interpolate_n_bezier_points(curve, self.resolution) if self.exact else space_interpolate_bezier(curve, 1000, self.resolution))]
 
 		spline = add_polyline_spline(self, context, curve, poly_points)
 		return spline
@@ -3501,31 +3539,7 @@ class BT_ConvertCurve(Operator):
 		for point in points:
 			point.handle_left_type = handle_type
 			point.handle_right_type = handle_type
-		spline.resolution_u = self.resolution       
-
-	def draw(self, context):
-		layout = self.layout
-		column = layout.column(align=True)
-		column.prop(self, 'type')
-		column.separator(factor=1.0)
-		if self.type == 'Bezier':
-			column.prop(self, 'keep_all_points')                                            
-			if self.keep_all_points:    
-				column.separator(factor=1.0)
-				column.prop(self, 'handle_type')
-				
-			column.separator(factor=1.0)
-
-		row = column.row(align=True)
-		row.label(text='Resolution:')           
-		row.prop(self, 'resolution', text='')
-		column.separator(factor=1.0)
-		
-		row = column.row()
-		row.prop(self, 'to_mesh', text='To Mesh', toggle=True)
-		column.separator(factor=1.0)
-		
-		column.prop(self, 'remove_src')
+		spline.resolution_u = self.resolution
 
 	def add_curve_copy(self, context, curve):
 		obj = bpy.data.objects.new('Curve', curve.data.copy())
@@ -3534,18 +3548,113 @@ class BT_ConvertCurve(Operator):
 		obj.matrix_world = curve.matrix_world
 		return obj
 
+	def mesh_to_curve(self, mesh):		
+		curve_data = bpy.data.curves.new('Spline', 'CURVE')
+		curve_data.dimensions = '3D'		
+		curve = bpy.data.objects.new('ConvertedCurve', curve_data)
+		spline = curve.data.splines.new('POLY')
+		bpy.context.scene.collection.objects.link(curve)		
+
+		bm = bmesh.new()
+		verts = bm.verts
+		bm.from_mesh(mesh)
+
+		viewport = get_view_3d(self, bpy.context)
+		width=viewport.width
+		height=viewport.height
+		view_screen_center = (width/2, height/2)
+		view_vector, view_origin = get_view_vector_and_ray_origin(self, bpy.context, view_screen_center)
+		view_axis = (view_vector - view_origin)
+		bm.verts.sort(key=lambda v: (bpy.context.object.matrix_world@v.co).y - view_axis.y)
+				
+		verts.index_update()
+		verts.ensure_lookup_table()
+
+		spline.points.add(len(verts)-1)
+		for index, vert in enumerate(verts):
+			spline.points[index].co.xyz = vert.co.copy()
+
+		bpy.context.view_layer.objects.active = curve
+		curve.select_set(True)
+
+		if self.type == 'Bezier':
+			if self.keep_all_points:
+				self.explicit_to_bezier(spline, self.handle_type)
+			else:
+				new_spline = self.poly_to_bezier(bpy.context, curve, curve.matrix_world, spline)
+				curve.data.splines.remove(spline)
+
+		bm.free()
+
+	def any_to_mesh(self, context, curve):
+		data = bpy.data
+		scene = context.scene
+		mesh = data.meshes.new(curve.name + ' mesh')
+		obj = bpy.data.objects.new(curve.name, mesh)
+		scene.collection.objects.link(obj)
+		
+		bm = bmesh.new()
+		bm.from_mesh(mesh)
+		
+		edge_buffer = []
+		points = (mathutils_interpolate_n_bezier_points(curve, self.resolution) if self.exact else space_interpolate_bezier(curve, 1000, self.resolution)) if is_bezier(curve) else [point.co.xyz for point in curve.data.splines[0].points]
+		
+		for point in points:
+			bm.verts.new(point)
+
+		bm.verts.index_update()
+		bm.verts.ensure_lookup_table()
+
+		for index, vert in enumerate(bm.verts):
+			if index + 1 != len(bm.verts):
+				edge_buffer.append([vert, bm.verts[index+1]])
+
+		for i in range(len(points)-1):
+			bm.edges.new(edge_buffer[i])
+
+		bm.edges.index_update()
+		bm.edges.ensure_lookup_table()
+
+		weld_map = bmesh.ops.find_doubles(bm, verts=bm.verts, dist=1e-5)
+		bmesh.ops.weld_verts(bm, targetmap=weld_map['targetmap'])
+
+		if self.to_face:
+			face = bm.faces.new(
+				[vert for vert in bm.verts]
+				)
+			bm.faces.index_update()
+			bm.faces.ensure_lookup_table()
+			face.normal_update()
+
+			if face.normal.dot(get_view_direction(self, context)) < 0:
+				face.normal_flip()
+				face.normal_update()
+
+		bm.to_mesh(mesh)
+		bm.free()
+
+		obj.select_set(True)
+		context.view_layer.objects.active = obj
+		bpy.data.objects.remove(curve)	
+
 	def execute(self, context):
-		sel = [obj for obj in context.selected_objects if obj.type == 'CURVE']
+		sel = [obj for obj in context.selected_objects if obj.type in ('CURVE', 'MESH')]
+		
+		# if not len(sel) > 0:
+		# 	self.report({'ERROR'}, self.bl_idname + ': No curves selected' )
+		# 	return {'CANCELLED'}
 
 		bpy.ops.object.mode_set(mode='OBJECT')
 		bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)   
   
-		converted = []
+		for obj in sel[:]:
+			self.original_type = obj.type
 
-		for curve in sel:
-			if not curve.type =='CURVE':
+			if obj.type == 'MESH':
+				self.mesh_to_curve(obj.data)
 				continue
-
+			
+			curve = obj
 			new_curve = self.add_curve_copy(context, curve)
 
 			for spline in new_curve.data.splines:
@@ -3590,69 +3699,23 @@ class BT_ConvertCurve(Operator):
 			parent = curve.parent
 			if parent is not None:
 				new_curve.parent = parent
-
-			if self.to_mesh[0]:
-				data = bpy.data
-				scene = context.scene
-				mesh = data.meshes.new(new_curve.name + ' mesh')
-				obj = bpy.data.objects.new(new_curve.name, mesh)
-				scene.collection.objects.link(obj)
-				
-				bm = bmesh.new()
-				bm.from_mesh(mesh)
-				
-				edge_buffer = []
-				points = space_interpolate_bezier(new_curve, 100, self.resolution) if is_bezier(new_curve) else [point.co.xyz for point in new_curve.data.splines[0].points]
-				
-				for point in points:
-					bm.verts.new(point)
-
-				bm.verts.index_update()
-				bm.verts.ensure_lookup_table()
-
-				for index, vert in enumerate(bm.verts):
-					if index + 1 != len(bm.verts):
-						edge_buffer.append([vert, bm.verts[index+1]])
-
-				for i in range(len(points)-1):
-					bm.edges.new(edge_buffer[i])
-
-				bm.edges.index_update()
-				bm.edges.ensure_lookup_table()
-
-				weld_map = bmesh.ops.find_doubles(bm, verts=bm.verts, dist=1e-5)
-				bmesh.ops.weld_verts(bm, targetmap=weld_map['targetmap'])
-
-				if self.to_mesh[1]:
-					face = bm.faces.new(
-						[vert for vert in bm.verts]
-						)
-					bm.faces.index_update()
-					bm.faces.ensure_lookup_table()
-					face.normal_update()
-
-					if face.normal.dot(get_view_direction(self, context)) < 0:
-						face.normal_flip()
-						face.normal_update()
-
-				bm.to_mesh(mesh)
-				bm.free()
-
-				obj.select_set(True)
-				context.view_layer.objects.active = obj
-				bpy.data.objects.remove(new_curve)
 			
-			if self.remove_src:
-				for curve in sel[:]:
-					bpy.data.objects.remove(curve)
+			if self.to_wireframe or self.to_face:
+				self.any_to_mesh(context, new_curve)
+		
+		if self.remove_src:			
+			for obj in sel[:]:
+				bpy.data.objects.remove(obj)
 
+		if self.edit_mode:
+			update_object_edit(context)
 
 		# bpy.ops.object.select_all(action='DESELECT')
 
 		return {'FINISHED'}
 
 # MESH OPS ######################################################################
-def recalculate_face_normal(self, context, face):	
+def recalculate_face_normal(self, context, face):
 	if face.normal.dot(get_view_direction(self, context).normalized()) < 0:
 		face.flip()
 
