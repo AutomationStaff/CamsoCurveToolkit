@@ -1125,7 +1125,7 @@ class BT_Snap(Operator):
 			if curve is context.object:
 				continue
 			
-			interpolated_points = mathutils_interpolate_n_bezier_points(curve, curve.data.splines[0].resolution_u+1) if is_bezier(curve) else [curve.matrix_world@Vector(point.co[0:3]) for point in curve.data.splines[0].points]
+			interpolated_points = mathutils_interpolate_n_bezier_points(curve, curve.data.splines[0].resolution_u+1) if is_bezier(curve) else [curve.matrix_world@Vector(point.co.xyz) for point in curve.data.splines[0].points]
 
 			for point in interpolated_points:
 				screen_point = vector_3d_to_screen(self, context, point)
@@ -1135,8 +1135,8 @@ class BT_Snap(Operator):
 		
 		self.snap_targets_handler = draw_snap_targets(self, context, [tuple(point) for point in self.snap_map.values()])
 
-	def calculate_gizmo_center(self, matrix, points):
-		return matrix@(sum((point.co.xyz for point in points), Vector()) / len(points))
+	def calculate_gizmo_center(self, matrix, points): 
+		return matrix@(sum((point.co.xyz for point in points), Vector())/len(points))
 
 	def remove_snap_targets_handler(self):
 		remove_gpu_draw_handler(self, self.snap_targets_handler)
@@ -1152,21 +1152,16 @@ class BT_Snap(Operator):
 
 	def snap(self, context, event, points):		
 		cursor = get_cursor(self, event)
-		matrix = context.object.matrix_world
-		curve = context.object	
-		
-		# if self.needs_update:
-		# 	self.snap_map.clear()
-		# 	self.build_snap_map(context)
-		# 	self.needs_update = False		
+		curve = context.object
+		matrix = curve.matrix_world		
 
 		if len(self.snap_map) > 0:
 			target = snap_get_target(self, context, cursor, self.snap_map).copy().freeze()
 			if BT_Cursor.is_cusror_in_radius_range_from_nearest_point(self, cursor, target, self.RADIUS):
 				nearest_world = self.snap_map.get(target)
 				if nearest_world is not None:
-					for point in points:
-						distance = nearest_world - (self.calculate_gizmo_center(matrix, points))
+					distance = nearest_world - (self.calculate_gizmo_center(matrix, points))
+					for point in points:						
 						translation = Matrix.Translation(distance.xyz)
 						point.co.xyz = translation@point.co.xyz
 						if len(point.co) == 3:	# is bezier point
@@ -2483,7 +2478,8 @@ class BT_Offset(Operator):
 
 		return best_handle
 
-	def execute(self, context):		
+	def execute(self, context):	
+		context.evaluated_depsgraph_get()	
 		bpy.ops.object.mode_set(mode='OBJECT')		
 		
 		if self.duplicate:
@@ -2494,9 +2490,7 @@ class BT_Offset(Operator):
 			bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False})
 		
 		curve = context.object	
-		pivot = curve.location.copy()
-
-		# bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)	
+		pivot = curve.location.copy()		
 
 		if not is_bezier(curve):
 			self.report({'ERROR'}, "Selected object is not a Bézier curve")
@@ -3666,13 +3660,12 @@ class BT_Convert(Operator):
 		obj = bpy.data.objects.new(curve.name, mesh)
 		scene.collection.objects.link(obj)
 		matrix = curve.matrix_world
-		obj.matrix_world = matrix
 
 		bm = bmesh.new()
 		bm.from_mesh(mesh)		
 		
 		edge_buffer = []
-		points = (mathutils_interpolate_n_bezier_points(curve, self.resolution) if self.exact else space_interpolate_bezier(curve, 1000, self.resolution)) if is_bezier(curve) else [point.co.xyz for point in curve.data.splines[0].points]
+		points = (mathutils_interpolate_n_bezier_points(curve, self.resolution) if self.exact else space_interpolate_bezier(curve, 1000, self.resolution)) if is_bezier(curve) else [matrix@point.co.xyz for point in curve.data.splines[0].points]
 			
 		for index, point in enumerate(points):
 			points[index] = matrix.inverted()@point
@@ -3731,12 +3724,12 @@ class BT_Convert(Operator):
 			
 			elif obj.type == 'CURVE':
 				curve = obj
-
+				
 				if self.to_wireframe or self.to_face:										
 					self.any_to_mesh(context, curve)					
-					continue			
+					continue
 
-				new_curve = self.add_curve_copy(curve)				
+				new_curve = self.add_curve_copy(curve)	
 
 				for spline in new_curve.data.splines:
 					if not spline.type in {'BEZIER', 'POLY'}:
@@ -3750,19 +3743,12 @@ class BT_Convert(Operator):
 							continue
 
 						# optimal conversion: interpolated bezier points will pass source polyline points where every 4 polypoints make 1 cubic bezier segment with 2 control points
-						
 						self.poly_to_bezier(context, new_curve, spline)									
 						new_curve.data.splines.remove(spline)                                           
 
 					elif spline.type == 'BEZIER' and self.type == 'Polyline':
 						self.bezier_to_poly(context, new_curve, spline)
 						new_curve.data.splines.remove(spline)
-
-								
-		# for name in origins.keys():
-		# 	if name in bpy.data.objects:
-		# 		obj = bpy.data.objects[name]
-		# 		set_pivot(obj, origins.get(name))		
 
 		if self.remove_src:			
 			for obj in sel[:]:
