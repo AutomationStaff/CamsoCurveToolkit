@@ -611,7 +611,7 @@ class BT_DrawPolyBezier(BT_Draw):
 	
 	def invoke(self, context, event):
 		if bpy.ops.object.select_all.poll():
-			bpy.ops.object.select_all(action='DESELECT') 
+			bpy.ops.object.select_all(action='DESELECT')
 
 		if not context.space_data.type == 'VIEW_3D':
 			self.report({'ERROR'}, "Current space is not 'VIEW_3D'")
@@ -3379,7 +3379,7 @@ class BT_Convert(Operator):
 	bl_options = {'REGISTER', 'UNDO'}
 	type: bpy.props.EnumProperty(items=[('Polyline', 'Polyline', ''), ('Bezier', 'Bézier', '')], name='Type')
 	remove_src: bpy.props.BoolProperty(name='Remove source', default=True)
-	resolution: bpy.props.IntProperty(name='Resolution', default = 12, min=2, soft_min=2, max=64, soft_max=64)
+	resolution: bpy.props.IntProperty(name='Resolution', default = 12, min=2, soft_min=2)
 	keep_all_points: bpy.props.BoolProperty(name='Keep All Points', default=True, description='Set all points to Bézier explicitly with specified handles')
 	handle_type: bpy.props.EnumProperty(items=[('AUTO', 'AUTO', ''), ('FREE', 'FREE', ''), ('VECTOR', 'VECTOR', ''), ('ALIGNED', 'ALIGNED', '')], name='Handle: ')
 	to_wireframe: bpy.props.BoolProperty(name='Wireframe', description='Converts the result to a mesh wireframe object')
@@ -3771,6 +3771,34 @@ class BT_Convert(Operator):
 
 		self.do_not_remove.clear()
 
+		return {'FINISHED'}
+
+class BT_ChangeColor(Operator):
+	bl_idname = 'object.bt_change_color'
+	bl_label = 'Change Color'
+	bl_description = 'Change Object Color of selected meshes and curves. Wireframe Color should be set to Object to see colored curves and object wireframe'
+	bl_options = {'REGISTER', 'UNDO'}
+	color: bpy.props.FloatVectorProperty(name='Color', subtype='COLOR', size=4, min=0, max=1.0, default=(0,0,0,1))
+
+	@classmethod
+	def poll(cls, context):
+		return context.object is not None
+
+	def draw(self, context):
+		layout = self.layout
+		column = layout.column()
+		row = column.row(align=True)
+		row.label(text='Color:')
+		row.prop(self, 'color', text = "")
+
+	def execute(self, context):
+		sel = context.selected_objects
+		if not len(sel):
+			self.report({'ERROR'}, self.bl_label + ': Nothing selected!')
+			return {'CANCELLED'}
+		for obj in sel:
+			if obj.type in {'MESH', 'CURVE'}:
+				obj.color = self.color
 		return {'FINISHED'}
 
 # MESH OPS ######################################################################
@@ -5069,6 +5097,7 @@ class BT_EditBezierPanel(Panel):
 		row.scale_y = 1.25
 		row.operator(BT_TransferCurveData.bl_idname, text = "", icon_value=pcoll['transfer_icon'].icon_id)
 		row.operator(BT_BezierInterpolate.bl_idname, text = "", icon_value=pcoll['interpolate_icon'].icon_id)
+		row.operator(BT_ChangeColor.bl_idname, text = "", icon_value=pcoll['change_color_icon'].icon_id)		
 
 		column = layout.column(align=True)
 		row = column.split(align=True)
@@ -5206,7 +5235,8 @@ classes = (
 	BT_Smooth,
 	BT_Merge,
 	BT_SetBezierHandleType,
-	BT_BezierInterpolate
+	BT_BezierInterpolate,
+	BT_ChangeColor
 )
 
 def register():
@@ -5237,6 +5267,7 @@ def register():
 	pcoll.load('convert_icon', dir + "/convert.png", "IMAGE")
 	pcoll.load('transfer_icon', dir + "/transfer.png", "IMAGE")
 	pcoll.load('interpolate_icon', dir + "/interpolate.png", "IMAGE")
+	pcoll.load('change_color_icon', dir + "/change_color.png", "IMAGE")		
 	pcoll.load('get_length_icon', dir + "/get_length.png", "IMAGE")
 	pcoll.load('set_length_icon', dir + "/set_length.png", "IMAGE")
 	pcoll.load('blend2x0_icon', dir + "/blend2x0.png", "IMAGE")
