@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 1, 1),
+	"version": (1, 1, 2),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -599,11 +599,12 @@ class BT_DrawPolyBezier(BT_Draw):
 	bl_description = "Poly Bézier Min is constructed by passing through 4 given points of a polyline. Poly Bézier Max building is continuous until finished"
 	bl_options = {'REGISTER', 'UNDO'}
 	to_bezier: bpy.props.IntProperty(min=0, max=2, default=0, options={'HIDDEN', 'SKIP_SAVE'})
+	is_parabola: bpy.props.BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
 	
 	@classmethod
 	def poll(cls, context):
 		wm = context.window_manager
-		return wm.bt_modal_on not in {'BT_POLYCURVE_MIN', 'BT_POLYCURVE_MAX'}
+		return wm.bt_modal_on not in {'BT_POLYPARABOLA', 'BT_POLYCURVE_MIN', 'BT_POLYCURVE_MAX'}
 	
 	def __init__(self, *args, **kwargs):
 		BT_Draw.__init__(self, *args, **kwargs)
@@ -624,6 +625,8 @@ class BT_DrawPolyBezier(BT_Draw):
 			wm.bt_modal_on = 'BT_POLYCURVE_MIN'
 		elif self.to_bezier == 2:
 			wm.bt_modal_on = 'BT_POLYCURVE_MAX'
+		elif self.is_parabola:
+			wm.bt_modal_on = 'BT_POLYPARABOLA'			
 
 		context.window_manager.modal_handler_add(self)
 
@@ -702,6 +705,17 @@ class BT_DrawPolyBezier(BT_Draw):
 		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':
 			self.add_point(context, event)
 
+			if self.is_parabola and len(self.points) == 3:
+				self.remove_target_handler()
+				self.remove_curve_2d_handler()
+				update_viewport(self, context)
+				add_polyline(self, context, [point[1] for point in self.points], 'Polyline')
+				bpy.ops.object.bt_convert(keep_all_points=False, resolution=context.scene.bt_resolution, type='Bezier')						
+				self.points.clear()
+				context.workspace.status_text_set(None)
+				context.window_manager.bt_modal_on = 'NONE'
+				return {'FINISHED'}
+			
 			if len(self.points) == 4 and self.to_bezier == 1: # bulid a short polybezier and finish			
 				self.remove_target_handler()
 				self.remove_curve_2d_handler()
@@ -738,7 +752,7 @@ class BT_DrawPolyBezier(BT_Draw):
 			self.points.clear()
 			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'
-			return {'FINISHED'}   
+			return {'FINISHED'}			
 
 		return {'RUNNING_MODAL'}
 
@@ -4989,14 +5003,15 @@ class BT_BuildCurvePanel(Panel):
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25			
-		row.operator(BT_DrawBezierLine.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_LINE' else False), icon_value=pcoll['bezier_line_icon'].icon_id)		
-		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False), icon_value=pcoll['polybezier_min_icon'].icon_id).to_bezier=1							 		    
-		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False), icon_value=pcoll['polybezier_max_icon'].icon_id).to_bezier=2	
-		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_CURVE' else False), icon_value=pcoll['bezier_polyline_icon'].icon_id).spline_type='BEZIER'
+		row.operator(BT_DrawBezierLine.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_LINE' else False), icon_value=pcoll['bezier_line_icon'].icon_id)
+		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYPARABOLA' else False), icon_value=pcoll['polyparabola_icon'].icon_id).is_parabola=True
+		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False), icon_value=pcoll['polybezier_min_icon'].icon_id).to_bezier=1								 		    
+		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False), icon_value=pcoll['polybezier_max_icon'].icon_id).to_bezier=2		
 
 		column = layout.column(align=True)
 		row = column.split(align=True)		
 		row.scale_y = 1.25
+		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_CURVE' else False), icon_value=pcoll['bezier_polyline_icon'].icon_id).spline_type='BEZIER'
 		row.operator(BT_DrawBezierCurve.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYLINE' else False), icon_value=pcoll['polyline_icon'].icon_id).spline_type='POLY'	
 		row.operator(BT_DrawPolylineCircle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYCIRCLE' else False), icon_value=pcoll['polyline_circle_icon'].icon_id)
 		row.operator(BT_DrawPolylineRectangle.bl_idname, text = "", depress=(True if wm.bt_modal_on=='BT_POLYRECTANGLE' else False), icon_value=pcoll['polyline_rectangle_icon'].icon_id)
@@ -5097,13 +5112,17 @@ class BT_BuildMeshPanel(Panel):
 		row.operator(BT_Patch.bl_idname, text = "", icon_value=pcoll['patch_icon'].icon_id)
 
 class BT_ActiveObjectPanel(Panel):
-	bl_label = "Active Object"
+	bl_label = "Active Object Statistics"
 	bl_idname = "OBJECT_PT_BT_ACTIVE_OBJECT_PANEL"
 	bl_space_type = 'VIEW_3D'
 	bl_region_type = 'UI'
 	bl_category = 'Camso Curve Toolkit'
 	bl_options =  {'DEFAULT_CLOSED'}
 	bl_order = 4
+
+	@classmethod
+	def poll(cls, context):
+		return context.object is not None
 
 	def draw(self, context):
 		layout = self.layout		
@@ -5122,15 +5141,17 @@ class BT_ActiveObjectPanel(Panel):
 				if spline.type in {'BEZIER', 'NURBS'}:
 					row = column.row(align=True)
 					row.label(text='Resolution:')
-					row.prop(spline, 'resolution_u', text='')				
+					row.prop(spline, 'resolution_u', text='')
 					column.separator()
 
-				row = column.row(align=True)
+				column.label(text='Points count: ' + str(len(spline.bezier_points) if is_bezier(obj) else len(spline.points)) )			
+				column.separator()		
+
 				row = column.row(align=True)			
 				row.label(text='Pipe:')
 				row.prop(curve.data, 'bevel_depth', text='')
-				row.prop(curve.data, 'bevel_resolution', text='')			
-				column.separator()			
+				row.prop(curve.data, 'bevel_resolution', text='')	
+				column.separator()
 				row = column.row(align=True)
 				row.label(text='Band:')
 				row.prop(curve.data, 'extrude', text='')
@@ -5139,6 +5160,10 @@ class BT_ActiveObjectPanel(Panel):
 				row = column.row(align=True)
 				row.label(text='Cyclic:')
 				row.prop(spline, 'use_cyclic_u', text='')
+				column.separator()
+
+			elif obj.type == 'MESH':
+				column.label(text='Vertex count: ' + str(len(obj.data.vertices)))	
 				column.separator()
 			
 			row = column.row(align=True)
@@ -5190,6 +5215,7 @@ def register():
 	dir = os.path.join(os.path.dirname(__file__), "icons")
 	pcoll.load('bezier_line_icon', dir + "/bezier_line.png", "IMAGE")
 	pcoll.load('bezier_polyline_icon', dir + "/bezier_polyline.png", "IMAGE")
+	pcoll.load('polyparabola_icon', dir + "/polyparabola.png", "IMAGE")	
 	pcoll.load('polybezier_min_icon', dir + "/polybezier_min.png", "IMAGE")
 	pcoll.load('polybezier_max_icon', dir + "/polybezier_max.png", "IMAGE")
 	pcoll.load('polyline_icon', dir + "/polyline.png", "IMAGE")
@@ -5235,7 +5261,8 @@ def register():
 		('NONE','',''),
 		('BT_LINE','',''),
 		('BT_CURVE','',''),
-		('BT_POLYCURVE_MIN','',''),
+		('BT_POLYPARABOLA','',''),			
+		('BT_POLYCURVE_MIN','',''),	
 		('BT_POLYCURVE_MAX','',''),	
 		('BT_POLYLINE','',''),
 		('BT_POLYCIRCLE','',''),
