@@ -604,7 +604,7 @@ class BT_DrawPolyBezier(BT_Draw):
 	@classmethod
 	def poll(cls, context):
 		wm = context.window_manager
-		return wm.bt_modal_on not in {'BT_POLYPARABOLA', 'BT_POLYCURVE_MIN', 'BT_POLYCURVE_MAX'}
+		return wm.bt_modal_on not in {'BT_POLYCURVE_PARABOLA', 'BT_POLYCURVE_MIN', 'BT_POLYCURVE_MAX'}
 	
 	def __init__(self, *args, **kwargs):
 		BT_Draw.__init__(self, *args, **kwargs)
@@ -626,7 +626,7 @@ class BT_DrawPolyBezier(BT_Draw):
 		elif self.to_bezier == 2:
 			wm.bt_modal_on = 'BT_POLYCURVE_MAX'
 		elif self.is_parabola:
-			wm.bt_modal_on = 'BT_POLYPARABOLA'			
+			wm.bt_modal_on = 'BT_POLYCURVE_PARABOLA'			
 
 		context.window_manager.modal_handler_add(self)
 
@@ -5004,7 +5004,7 @@ class BT_BuildCurvePanel(Panel):
 		row = column.split(align=True)		
 		row.scale_y = 1.25			
 		row.operator(BT_DrawBezierLine.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_LINE' else False), icon_value=pcoll['bezier_line_icon'].icon_id)
-		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYPARABOLA' else False), icon_value=pcoll['polyparabola_icon'].icon_id).is_parabola=True
+		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_PARABOLA' else False), icon_value=pcoll['polybezier_parabola_icon'].icon_id).is_parabola=True
 		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MIN' else False), icon_value=pcoll['polybezier_min_icon'].icon_id).to_bezier=1								 		    
 		row.operator(BT_DrawPolyBezier.bl_idname, text="", depress=(True if wm.bt_modal_on=='BT_POLYCURVE_MAX' else False), icon_value=pcoll['polybezier_max_icon'].icon_id).to_bezier=2		
 
@@ -5215,7 +5215,7 @@ def register():
 	dir = os.path.join(os.path.dirname(__file__), "icons")
 	pcoll.load('bezier_line_icon', dir + "/bezier_line.png", "IMAGE")
 	pcoll.load('bezier_polyline_icon', dir + "/bezier_polyline.png", "IMAGE")
-	pcoll.load('polyparabola_icon', dir + "/polyparabola.png", "IMAGE")	
+	pcoll.load('polybezier_parabola_icon', dir + "/polybezier_parabola.png", "IMAGE")
 	pcoll.load('polybezier_min_icon', dir + "/polybezier_min.png", "IMAGE")
 	pcoll.load('polybezier_max_icon', dir + "/polybezier_max.png", "IMAGE")
 	pcoll.load('polyline_icon', dir + "/polyline.png", "IMAGE")
@@ -5261,7 +5261,7 @@ def register():
 		('NONE','',''),
 		('BT_LINE','',''),
 		('BT_CURVE','',''),
-		('BT_POLYPARABOLA','',''),			
+		('BT_POLYCURVE_PARABOLA','',''),			
 		('BT_POLYCURVE_MIN','',''),	
 		('BT_POLYCURVE_MAX','',''),	
 		('BT_POLYLINE','',''),
