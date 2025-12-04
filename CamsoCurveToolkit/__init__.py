@@ -3778,27 +3778,39 @@ class BT_ChangeColor(Operator):
 	bl_label = 'Change Color'
 	bl_description = 'Change Object Color of selected meshes and curves. Wireframe Color should be set to Object to see colored curves and object wireframe'
 	bl_options = {'REGISTER', 'UNDO'}
-	color: bpy.props.FloatVectorProperty(name='Color', subtype='COLOR', size=4, min=0, max=1.0, default=(0,0,0,1))
+
+	needs_update: bpy.props.BoolProperty(options={'SKIP_SAVE', 'HIDDEN'})
 
 	@classmethod
 	def poll(cls, context):
 		return context.object is not None
-
+	
 	def draw(self, context):
 		layout = self.layout
 		column = layout.column()
 		row = column.row(align=True)
 		row.label(text='Color:')
-		row.prop(self, 'color', text = "")
+		row.prop(self, 'color', text = "")	
 
+
+	def change_color(self, context):
+		self.needs_update=True
+		return None
+
+	color: bpy.props.FloatVectorProperty(name='Color', subtype='COLOR', size=4, min=0, max=1.0, default=(0,0,0,1), update=change_color)	
+	
 	def execute(self, context):
-		sel = context.selected_objects
-		if not len(sel):
+		self.sel = [obj for obj in context.selected_objects if obj.type in {'MESH', 'CURVE'}]
+		if not len(self.sel):		
 			self.report({'ERROR'}, self.bl_label + ': Nothing selected!')
-			return {'CANCELLED'}
-		for obj in sel:
-			if obj.type in {'MESH', 'CURVE'}:
-				obj.color = self.color
+			return {'CANCELLED'}	
+		
+		if self.needs_update:
+			for obj in context.selected_objects:
+				if obj.type in {'MESH', 'CURVE'}:					
+					obj.color = self.color
+			self.needs_update = False
+
 		return {'FINISHED'}
 
 # MESH OPS ######################################################################
