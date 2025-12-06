@@ -24,7 +24,7 @@ bl_info = {
 	"name": "Camso Curve Toolkit",
 	"description": "Tools for building and editing curves",
 	"author": "Sergey Arkhipov",
-	"version": (1, 1, 2),
+	"version": (1, 1, 3),
 	"blender": (4, 5, 0),
 	"location": "Sidebar -> Camso Curve Toolkit",
 	"url": "https://github.com/AutomationStaff/CamsoCurveToolkit",
@@ -200,6 +200,7 @@ class BT_Draw(Operator, BT_Cursor):
 			'CTRL_LMB': '[CTRL]+[LMB]: Snap to curves    ',
 			'CTRL_SHIFT_LMB': '[CTRL]+[SHIFT]+[LMB]: Snap to mesh vertices    ',
 			'SHIFT_LMB': '[SHIFT]+[LMB]: Snap to mesh surface    ',
+			'TAB': '[TAB]: Reverse    ',
 			'ENTER': '[ENTER]: Confirm and Exit'
 			}
 
@@ -392,10 +393,10 @@ class BT_DrawBezierLine(BT_Draw):
 			if len(self.points) != 2:
 				self.remove_target_handler()
 				self.remove_line_2d_handler()
-				update_viewport(self, context)      
-				self.target_handler = draw_target(self, context, cursor)          
+				update_viewport(self, context)
+				self.target_handler = draw_target(self, context, cursor)
 				if len(self.points) == 1:
-					self.line_2d_handler = draw_2d_polyline(self, context, (self.points[0][0], cursor), ((0,1),))           
+					self.line_2d_handler = draw_2d_polyline(self, context, (self.points[0][0], cursor), ((0,1),))
 			return {'RUNNING_MODAL'}
 
 		# finish
@@ -448,17 +449,13 @@ class BT_DrawBezierCurve(BT_Draw):
 		else:
 			self.curve = self.add_curve(context, self.spline_type, 'BézierCurve' if self.spline_type == 'BEZIER' else 'Polyline')
 			self.get_points(self.curve)[0].hide = True
-			self.new_spline = True		
+			self.new_spline = True
 
 		wm = context.window_manager		
 		wm.bt_modal_on = 'BT_CURVE' if self.spline_type=='BEZIER' else 'BT_POLYLINE'
 		
 		bpy.ops.object.mode_set(mode='EDIT')
 		
-		# self.active_tool = context.workspace.tools.from_space_view3d_mode('EDIT_CURVE').idname
-		# if self.active_tool != "builtin.select":
-		# 	bpy.ops.wm.tool_set_by_id(name="builtin.select", space_type="VIEW_3D")
-
 		if self.curve is None:
 			self.report({'ERROR'}, 'Can\'t build a new curve' )
 			return {"CANCELLED"}	
@@ -467,6 +464,9 @@ class BT_DrawBezierCurve(BT_Draw):
 		context.window.cursor_modal_set('CROSS')
 
 		context.window_manager.modal_handler_add(self)
+
+		km=self.keymap_strings
+		context.workspace.status_text_set(km['LMB'] + km['CTRL_LMB'] + km['CTRL_SHIFT_LMB'] + km['SHIFT_LMB'] + km['TAB'] + km['ENTER'])
 			
 		return {"RUNNING_MODAL"}
 
@@ -528,9 +528,7 @@ class BT_DrawBezierCurve(BT_Draw):
 						points[0].hide = False
 						self.new_spline = False						
 						points[0].handle_right_type='VECTOR'
-						points[0].handle_left_type='VECTOR'
-						# points[-1].handle_right_type='FREE'
-						# points[-1].handle_left_type='FREE'					
+						points[0].handle_left_type='VECTOR'			
 
 					else:
 						# now we can add a new point
@@ -538,10 +536,7 @@ class BT_DrawBezierCurve(BT_Draw):
 						points[-1].co = point						
 						points[-1].handle_left_type = 'VECTOR'
 						points[-1].handle_right_type = 'VECTOR'
-						# points[-1].handle_right_type='FREE'
-						# points[-1].handle_left_type='FREE'											
-						# points[-1].handle_right =  Matrix.Translation(points[-1].co) @ points[-1].co - points[-1].handle_left
-						
+					
 				
 				elif self.spline_type == 'POLY':
 					if self.new_spline:                     
@@ -553,43 +548,68 @@ class BT_DrawBezierCurve(BT_Draw):
 						points[-1].co = point.to_4d()
 
 	def modal(self, context, event):
-		# if event.type not in {'TIMER_REPORT', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
-		# 	print(event.type, event.value)
+		try:
+			# if event.type not in {'TIMER_REPORT', 'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE'}:
+			# 	print(event.type, event.value)
 
-		points = self.get_points(self.curve)
- 
-		if event.alt and event.type in ('LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE', 'MOUSEMOVE'):			
-			return {'PASS_THROUGH'}
+			points = self.get_points(self.curve)
+			cursor = get_cursor(self, event)
+	 
+			if event.alt and event.type in ('LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEMOUSE', 'MOUSEMOVE'):
+				self.remove_line_2d_handler()
+				update_viewport(self, context)
+				return {'PASS_THROUGH'}
 
-		elif event.type in ('MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE'):			
-			return {'PASS_THROUGH'}	
+			elif event.type in ('MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE'):
+				self.remove_line_2d_handler()
+				update_viewport(self, context)
+				return {'PASS_THROUGH'}
 
-		elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':			
-			self.add_point(context, event)
-			return {'PASS_THROUGH'}
+			elif event.type == 'LEFTMOUSE' and event.value == 'PRESS':			
+				self.add_point(context, event)
+				self.remove_line_2d_handler()
+				update_viewport(self, context)
+				return {'PASS_THROUGH'}
 
-		elif event.type in {'RET', 'ESC'} and event.value == 'PRESS':         
-			curve = self.curve
+			elif event.type == 'MOUSEMOVE':
+				if len(points) >= 1 and not self.new_spline:
+					self.remove_line_2d_handler()
+					self.line_2d_handler = draw_2d_polyline(self, context, (vector_3d_to_screen(self, context, self.curve.matrix_world@(points[-1].co)), cursor), ((0,1),))
+					update_viewport(self, context)
+				return {'RUNNING_MODAL'}
+
+			elif event.type == 'TAB' and event.value == 'PRESS':
+				self.remove_line_2d_handler()
+				reverse_curve(self, self.curve)
+				self.line_2d_handler = draw_2d_polyline(self, context, (vector_3d_to_screen(self, context, self.curve.matrix_world@(points[-1].co)), cursor), ((0,1),))
+				update_viewport(self, context)
+
+			elif event.type in {'RET', 'ESC'} and event.value == 'PRESS':				
+				curve = self.curve
+				context.workspace.status_text_set(None)
+				context.window_manager.bt_modal_on = 'NONE'	
+				context.window.cursor_modal_set('DEFAULT')
+				update_object_edit_object(context)		
+				if not len(self.get_points(curve)) > 1:
+					bpy.data.curves.remove(curve.data)
+					curve = None
+					return {'FINISHED'}
+
+				context.view_layer.objects.active = curve
+				curve.select_set(True)
+				set_pivot(curve, curve.matrix_world@self.get_points(curve)[0].co.xyz)
+				self.remove_line_2d_handler()
+				update_viewport(self, context)
+				return {'FINISHED'}		
+			
+		except:
+			self.remove_line_2d_handler()
 			context.workspace.status_text_set(None)
 			context.window_manager.bt_modal_on = 'NONE'	
 			context.window.cursor_modal_set('DEFAULT')
-			update_object_edit_object(context)		
-			if not len(self.get_points(curve)) > 1:
-				bpy.data.curves.remove(curve.data)
-				curve = None
-				return {'FINISHED'}
-
-			context.view_layer.objects.active = curve
-			curve.select_set(True)
-			set_pivot(curve, curve.matrix_world@self.get_points(curve)[0].co.xyz)
-
-			# # update_object_edit(context)			
-			# if self.curve:
-			# 	if self.spline_type == 'BEZIER':
-			# 		set_handle_type(self, self.curve, 'VECTOR')
-			# 		set_handle_type(self, self.curve, 'FREE')
-
-			return {'FINISHED'}
+			update_object_edit_object(context)
+			update_viewport(self, context)	
+			return {'CANCELLED'}
 
 		return {'RUNNING_MODAL'}
 
