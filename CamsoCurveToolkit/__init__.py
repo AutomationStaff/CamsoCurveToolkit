@@ -488,7 +488,7 @@ class BT_DrawBezierCurve(BT_Draw):
 		return curve
 
 	def add_point(self, context, event):
-		cursor = get_cursor(self, event)	   
+		cursor = get_cursor(self, event)  
 		point = None
 
 		if event.ctrl: # snap to mesh verts
@@ -1824,15 +1824,15 @@ class BT_Merge(Operator):
 
 class BT_SetBezierHandleType(Operator):
 	bl_idname = 'curve.bt_set_handle_type'
-	bl_label = 'Set Bézier Points Handle Type'
-	bl_description = 'Set Bézier curve points handle type'
+	bl_label = 'Set Bézier Handle Type'
+	bl_description = 'Set Bézier handle type'
 	bl_options = {'REGISTER', 'UNDO'}
 	handle_type: bpy.props.EnumProperty(items=[
 		('FREE','FREE',''),
 		('VECTOR','VECTOR',''),
 		('ALIGNED','ALIGNED',''),
 		('AUTO','AUTO','')],
-		default='ALIGNED')
+		default='ALIGNED', name='Handle Type')
 
 	@classmethod
 	def poll(cls, context):
@@ -4860,8 +4860,6 @@ def are_normals_flipped(self, context, bm):
 	return median_normal.dot(view_direction) <= 0
 
 def project(self, context, cursor, *, on_mesh=False):
-	tool_settings = bpy.context.scene.tool_settings         
-
 	view_vector, ray_origin = get_view_vector_and_ray_origin(self, context, cursor)
 	
 	direction = view_vector.normalized()
@@ -4869,6 +4867,10 @@ def project(self, context, cursor, *, on_mesh=False):
 	
 	if on_mesh and hit_result[0]:		
 		target_object = hit_result[4]
+		
+		if target_object.rotation_euler != Euler() or target_object.scale != Vector((1.0, 1.0, 1.0)):
+			self.report({'WARNING'}, self.bl_label + ": For correct projection, the target object needs default or applied rotation and scale transforms")			
+		
 		target_obj_eval = target_object.evaluated_get(context.evaluated_depsgraph_get())
 		return (cursor, get_projection_location(self, context, ray_origin, target_obj_eval, direction, view_vector))
 
