@@ -2515,20 +2515,24 @@ class BT_Offset(Operator):
 	def execute(self, context):	
 		context.evaluated_depsgraph_get()	
 		bpy.ops.object.mode_set(mode='OBJECT')		
-		
+		curve = context.object
+
+		if not is_bezier(curve):
+			self.report({'ERROR'}, "Selected object is not a Bézier curve")
+			return{'CANCELLED'}		
+
 		if self.duplicate:
 			for obj in context.selected_objects:
 				if obj is not context.object:
 					obj.select_set(False)
+			
+			offset_curve = bpy.data.objects.new('OffsetBézier', curve.data.copy())
+			context.scene.collection.objects.link(offset_curve)
+			context.view_layer.objects.active = offset_curve			
+			offset_curve.matrix_world = curve.matrix_world
+			curve = offset_curve	
 
-			bpy.ops.object.duplicate_move(OBJECT_OT_duplicate={"linked":False})
-		
-		curve = context.object	
-		pivot = curve.location.copy()		
-
-		if not is_bezier(curve):
-			self.report({'ERROR'}, "Selected object is not a Bézier curve")
-			return{'CANCELLED'}
+		# pivot = curve.location.copy()
 		
 		distance = self.distance		
 		rotation = self.rotation		
@@ -2667,7 +2671,7 @@ class BT_Offset(Operator):
 		point_last.handle_right = offset@position
 		point_last.handle_right = ((point_last.handle_right - point_last.co) + bezier_points_lookup[-1][-1])
 
-		set_pivot(curve, pivot)
+		# set_pivot(curve, pivot)
 		# bpy.ops.object.mode_set(mode='EDIT')
 			
 		return {'FINISHED'}
@@ -5015,9 +5019,9 @@ pcoll = None
 class BT_Settings(Panel):
 	bl_label = 'Settings'  
 	bl_idname = "SCENE_PT_bt_settings"
-	bl_space_type = 'PROPERTIES'
-	bl_region_type = 'WINDOW'
-	bl_context = "scene"
+	bl_space_type = 'VIEW_3D'
+	bl_region_type = 'UI'
+	bl_category = 'Camso Curve Toolkit'
 	bl_description = 'Properties assigned to a new curve'
 	
 	def draw(self, context):
