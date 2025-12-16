@@ -5017,10 +5017,10 @@ def update_object_edit_object(context):
 pcoll = None
 
 class BT_Settings(Panel):
-	bl_label = 'Settings'  
+	bl_label = 'Camso Curve Builder Settings'  
 	bl_idname = "SCENE_PT_bt_settings"
-	bl_space_type = 'VIEW_3D'
-	bl_region_type = 'UI'
+	bl_space_type = 'TOPBAR'
+	bl_region_type = 'WINDOW'
 	bl_category = 'Camso Curve Toolkit'
 	bl_description = 'Properties assigned to a new curve'
 	
@@ -5197,9 +5197,9 @@ class BT_ActiveObjectPanel(Panel):
 		obj = context.object
 		
 		if obj is not None:
-			column.label(text='Type: ' + (obj.data.splines[0].type if obj.type == 'CURVE' else obj.type))			
-			column.separator()			
 			column.prop(obj, 'name', text='Name')
+			column.separator()			
+			column.label(text='Type: ' + (obj.data.splines[0].type if obj.type == 'CURVE' else obj.type))			
 			column.separator()
 
 			if obj.type == 'CURVE':
